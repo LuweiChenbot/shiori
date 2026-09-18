@@ -10,11 +10,12 @@ It is a PWA: it runs in Safari and can be added to the iPhone home screen, where
 npm install
 npm run dev        # http://localhost:5173, also reachable from your phone on the same Wi-Fi
 npm run build      # static site in dist/
+npm run deploy     # build and publish to GitHub Pages
 ```
 
 On an iPhone on the same Wi-Fi, open `http://<your-Mac-IP>:5173`.
 
-Pushing to `main` builds the site and deploys it to GitHub Pages (`.github/workflows/deploy.yml`). Open the Pages URL in Safari and choose Share → Add to Home Screen. HTTPS is what enables offline use, and a fixed address keeps your library in one place.
+`npm run deploy` builds the site and publishes it to the `gh-pages` branch, which GitHub Pages serves. Open the Pages URL in Safari and choose Share → Add to Home Screen. HTTPS is what enables offline use, and a fixed address keeps your library in one place.
 
 ## Using it
 
