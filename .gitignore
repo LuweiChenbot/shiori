@@ -1,0 +1,11 @@
+node_modules/
+dist/
+# Local test books (may include copyrighted files) are never committed or deployed.
+test-books/
+.DS_Store
+# Secrets and local tool settings: never commit.
+dsapikey.rtf
+*apikey*
+*.key
+.env*
+.claude/
