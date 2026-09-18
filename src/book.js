@@ -41,14 +41,19 @@ function splitHash(href) {
 const byTag = (node, local) => (node ? Array.from(node.getElementsByTagNameNS('*', local)) : []);
 const textOf = (node) => (node?.textContent || '').replace(/\s+/g, ' ').trim();
 
+// A byte-order mark or blank line before <?xml is fine in Chrome but makes
+// WebKit (every browser on iPhone) reject the whole document.
+const clean = (text) => text.replace(/^[\uFEFF\s]+(?=<)/, '');
+
 function parseXML(text) {
-  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  const doc = new DOMParser().parseFromString(clean(text), 'application/xml');
   if (doc.getElementsByTagName('parsererror').length) throw new Error('XML 解析失敗');
   return doc;
 }
 
 /** Parse a content document, preferring strict XHTML and falling back to HTML. */
-export function parseContent(text) {
+export function parseContent(raw) {
+  const text = clean(raw);
   const xml = new DOMParser().parseFromString(text, 'application/xhtml+xml');
   if (!xml.getElementsByTagName('parsererror').length && xml.body) return { doc: xml, xml: true };
   return { doc: new DOMParser().parseFromString(text, 'text/html'), xml: false };
