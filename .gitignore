@@ -9,3 +9,6 @@ dsapikey.rtf
 *.key
 .env*
 .claude/
+# Design references kept locally
+*.png
+!public/**/*.png

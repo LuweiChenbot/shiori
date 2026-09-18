@@ -1,6 +1,6 @@
-// The shelf. The book being read is shown large at the top; every book
-// stands below as a spine on a shelf, coloured after its cover and as thick
-// as it is long. Books in progress carry a red bookmark ribbon.
+// The library. The book you are reading comes first; the others follow as a
+// plain list. A tab bar at the bottom switches between the library and search,
+// and opens settings.
 
 import { db, requestPersistence } from './db.js';
 import { importFile } from './book.js';
@@ -9,92 +9,57 @@ import { openSettings } from './settings-view.js';
 
 const SAMPLE = { url: './samples/ame-no-toshokan.epub', name: 'ame-no-toshokan.epub', title: '雨の図書館' };
 
-// Spine colours for books without a cover image: [background, ink].
-const PALETTE = [
-  ['#3B4A5A', '#EDE6D8'], ['#34483A', '#E9E4D3'], ['#5A3A34', '#F0E4D8'], ['#383C58', '#E6E3EE'],
-  ['#6B5A3A', '#F3EBDA'], ['#2F3438', '#E6E0D4'], ['#8A3B2E', '#F6E9DD'], ['#D9CFBC', '#2E2A25'],
-];
-
-function hash(s) {
-  let h = 0;
-  for (const c of s) h = (h * 31 + c.codePointAt(0)) >>> 0;
-  return h;
-}
-
 function progressOf(book) {
   const p = book.progress?.percent;
   return p == null ? null : Math.max(0, Math.min(100, p));
 }
 
-const inProgress = (book) => {
+function lastRead(ts) {
+  if (!ts) return '尚未開始';
+  const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const then = new Date(ts);
+  const days = Math.round((day(new Date()) - day(then)) / 864e5);
+  if (days <= 0) return '今天';
+  if (days === 1) return '昨天';
+  if (days < 7) return `${days} 天前`;
+  return `${then.getMonth() + 1}月${then.getDate()}日`;
+}
+
+function progressHtml(book) {
   const p = progressOf(book);
-  return p != null && p > 0 && p < 99.5;
-};
-
-/** Average colour of the cover, deepened into something that reads as cloth or card. */
-async function coverTone(blob) {
-  const bitmap = await createImageBitmap(blob);
-  const canvas = document.createElement('canvas');
-  canvas.width = 24;
-  canvas.height = 36;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(bitmap, 0, 0, 24, 36);
-  const px = ctx.getImageData(0, 0, 24, 36).data;
-  let r = 0, g = 0, b = 0, n = 0;
-  for (let i = 0; i < px.length; i += 4) {
-    const max = Math.max(px[i], px[i + 1], px[i + 2]);
-    const min = Math.min(px[i], px[i + 1], px[i + 2]);
-    // Colourful pixels count more than paper white and ink black.
-    const w = 1 + ((max - min) / 255) * 4;
-    r += px[i] * w; g += px[i + 1] * w; b += px[i + 2] * w; n += w;
-  }
-  const [h, s] = rgbToHsl(r / n, g / n, b / n);
-  const bg = `hsl(${Math.round(h)} ${Math.round(Math.min(s, 0.55) * 100)}% 30%)`;
-  return { bg, fg: '#F3ECDF' };
-}
-
-function rgbToHsl(r, g, b) {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  if (max === min) return [0, 0, l];
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  let h;
-  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
-  else if (max === g) h = (b - r) / d + 2;
-  else h = (r - g) / d + 4;
-  return [h * 60, s, l];
-}
-
-const spineHeight = (book) => 158 + (hash(book.id) % 5) * 12;
-
-function spineStyle(book) {
-  const total = (book.weights || []).reduce((a, b) => a + b, 0) || 3000;
-  const width = Math.round(Math.max(34, Math.min(64, 30 + 12 * (Math.log10(total) - 3))));
-  const height = spineHeight(book);
-  const [bg, fg] = book.tone ? [book.tone.bg, book.tone.fg] : PALETTE[hash(book.title) % PALETTE.length];
-  return `--w:${width}px;--h:${height}px;--bg:${bg};--fg:${fg}`;
+  if (p == null) return '<span class="meta">未讀</span>';
+  const pct = p >= 99.5 ? '讀完' : `${Math.max(1, Math.round(p))}%`;
+  return `<span class="progress"><span class="bar"><i style="width:${p}%"></i></span><span class="pct">${pct}</span></span>`;
 }
 
 export async function showLibrary(root, { openBook }) {
   const urls = [];
+  let mode = 'library';
+  let query = '';
+
   root.innerHTML = '';
   const view = el(`<div class="library">
     <header class="lib-head">
-      <span class="seal" aria-label="栞">栞</span>
-      <div class="lib-actions">
-        <button class="icon-btn" data-act="import" aria-label="匯入書籍">${icon('plus', 24)}</button>
-        <button class="icon-btn" data-act="settings" aria-label="設定">${icon('settings', 23)}</button>
-      </div>
+      <h1 class="lib-title">書庫</h1>
+      <button class="icon-btn" data-act="import" aria-label="匯入書籍">${icon('plus', 26)}</button>
     </header>
+    <form class="lib-search" role="search" hidden>
+      <label class="search-field">${icon('search', 17)}<input type="search" placeholder="書名或作者" enterkeyhint="search" aria-label="搜尋書名或作者" /></label>
+    </form>
     <main class="lib-main"></main>
+    <nav class="tabbar" aria-label="主選單">
+      <button data-tab="library">${icon('library', 24)}<span>書庫</span></button>
+      <button data-tab="search">${icon('search', 24)}<span>搜尋</span></button>
+      <button data-tab="settings">${icon('gear', 24)}<span>設定</span></button>
+    </nav>
     <input type="file" multiple hidden />
   </div>`);
   root.appendChild(view);
-  const main = view.querySelector('.lib-main');
-  const picker = view.querySelector('input[type=file]');
+  const $ = (s) => view.querySelector(s);
+  const main = $('.lib-main');
+  const picker = $('input[type=file]');
+  const searchForm = $('.lib-search');
+  const searchInput = searchForm.querySelector('input');
 
   async function importFiles(files) {
     requestPersistence();
@@ -117,8 +82,41 @@ export async function showLibrary(root, { openBook }) {
     picker.value = '';
     if (files.length) importFiles(files);
   });
-  view.querySelector('[data-act="import"]').addEventListener('click', () => picker.click());
-  view.querySelector('[data-act="settings"]').addEventListener('click', () => openSettings());
+  $('[data-act="import"]').addEventListener('click', () => picker.click());
+
+  function setMode(next) {
+    mode = next;
+    $('.lib-title').textContent = mode === 'search' ? '搜尋' : '書庫';
+    $('[data-act="import"]').hidden = mode === 'search';
+    searchForm.hidden = mode !== 'search';
+    view.querySelectorAll('[data-tab]').forEach((b) => {
+      const on = b.dataset.tab === mode;
+      b.classList.toggle('on', on);
+      if (on) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    });
+    if (mode === 'search') {
+      searchInput.focus();
+    } else {
+      query = '';
+      searchInput.value = '';
+    }
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  view.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.tab === 'settings') openSettings();
+    else if (b.dataset.tab !== mode) setMode(b.dataset.tab);
+  }));
+  searchInput.addEventListener('input', () => {
+    query = searchInput.value.trim().toLowerCase();
+    render();
+  });
+  searchForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    searchInput.blur();
+  });
 
   async function openSample() {
     const res = await fetch(SAMPLE.url);
@@ -127,64 +125,53 @@ export async function showLibrary(root, { openBook }) {
     if (book) openBook(book.id);
   }
 
-  function coverHtml(book) {
+  function coverHtml(book, size) {
     if (book.cover?.data) {
       const url = URL.createObjectURL(new Blob([book.cover.data], { type: book.cover.type }));
       urls.push(url);
-      return `<img src="${url}" alt="" />`;
+      return `<span class="cover ${size}"><img src="${url}" alt="" /></span>`;
     }
-    return `<div class="gen-cover" style="${spineStyle(book)}">
-      <span class="gen-title">${esc(book.title)}</span>
-      ${book.author ? `<span class="gen-author">${esc(book.author)}</span>` : ''}
-    </div>`;
+    return `<span class="cover ${size} plain">
+      <span class="plain-title">${esc(book.title)}</span>
+      ${book.author ? `<span class="plain-author">${esc(book.author)}</span>` : ''}
+    </span>`;
   }
 
-  function heroHtml(book) {
-    const p = progressOf(book);
-    const label = p == null ? '開始閱讀' : p >= 99.5 ? '重讀一遍' : `繼續閱讀 · ${Math.max(1, Math.round(p))}%`;
-    return `<section class="hero">
-      <div class="hero-mark" aria-hidden="true">読</div>
-      <button class="hero-cover" data-open="${book.id}" aria-label="開啟《${esc(book.title)}》">${coverHtml(book)}</button>
-      <div class="hero-text">
-        <h1 class="hero-title">${esc(book.title)}</h1>
-        ${book.author ? `<p class="hero-author">${esc(book.author)}</p>` : ''}
-      </div>
-      <div class="hero-foot">
-        <div class="hero-bar"><span style="width:${p ?? 0}%"></span></div>
-        <button class="hero-go" data-open="${book.id}">${label}<span aria-hidden="true">→</span></button>
-      </div>
+  function currentHtml(book) {
+    const started = progressOf(book) != null;
+    return `<section class="section">
+      <h2 class="section-label"><span>${started ? '繼續閱讀' : '最近加入'}</span></h2>
+      <button class="current" data-id="${book.id}">
+        ${coverHtml(book, 'lg')}
+        <span class="info">
+          <span class="book-title" lang="ja">${esc(book.title)}</span>
+          ${book.author ? `<span class="book-author" lang="ja">${esc(book.author)}</span>` : ''}
+          ${progressHtml(book)}
+          <span class="meta">上次閱讀 · ${lastRead(book.openedAt)}</span>
+        </span>
+      </button>
     </section>`;
   }
 
-  function spineHtml(book, i, all) {
-    const lean = all.length > 2 && i === all.length - 1 ? ' lean' : '';
-    const ribbon = inProgress(book) ? '<i class="ribbon" aria-hidden="true"></i>' : '';
-    // Fit the title down the spine: shrink it, then give up the author's space if needed.
-    const height = spineHeight(book);
-    const chars = [...book.title].length;
-    const fits = (room) => Math.floor(room / (chars * 1.1));
-    let fs = Math.min(14, fits(height - 32 - 56));
-    let author = !!book.author;
-    if (fs < 11) {
-      author = false;
-      fs = Math.max(10, Math.min(14, fits(height - 32)));
-    }
-    return `<button class="slot${lean}" data-id="${book.id}" aria-label="《${esc(book.title)}》">
-      <span class="spine" style="${spineStyle(book)};--fs:${fs}px">
-        <span class="spine-title">${esc(book.title)}</span>
-        ${author ? `<span class="spine-author">${esc(book.author)}</span>` : ''}
-        ${ribbon}
-      </span>
-    </button>`;
+  function rowsHtml(books) {
+    return `<ul class="rows">${books.map((book) => `
+      <li><button class="row" data-id="${book.id}">
+        ${coverHtml(book, 'sm')}
+        <span class="info">
+          <span class="book-title" lang="ja">${esc(book.title)}</span>
+          ${book.author ? `<span class="book-author" lang="ja">${esc(book.author)}</span>` : ''}
+          ${progressHtml(book)}
+        </span>
+      </button></li>`).join('')}</ul>`;
   }
 
   async function render() {
     urls.splice(0).forEach((u) => URL.revokeObjectURL(u));
     const books = (await db.allBooks()).sort((a, b) => (b.openedAt || b.addedAt) - (a.openedAt || a.addedAt));
+
     if (!books.length) {
       main.innerHTML = `<div class="empty">
-        <div class="empty-art" aria-hidden="true"><span>栞</span><i class="ribbon"></i></div>
-        <p class="empty-title">把第一本書放上書架</p>
+        <p class="empty-title">書庫是空的</p>
         <p class="empty-hint">匯入沒有 DRM 的 EPUB，或 TXT 文字檔（支援青空文庫的注音格式）。</p>
         <button class="btn primary" data-act="import-empty">匯入書籍</button>
         <button class="btn ghost" data-act="sample">開啟範例《${SAMPLE.title}》</button>
@@ -194,31 +181,33 @@ export async function showLibrary(root, { openBook }) {
       return;
     }
 
-    // Shelf order stays put (by date added) so books don't jump around.
-    const shelf = [...books].sort((a, b) => a.addedAt - b.addedAt);
-    main.innerHTML = `${heroHtml(books[0])}
-      <div class="shelf">${shelf.map(spineHtml).join('')}</div>`;
-
-    main.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => openBook(b.dataset.open)));
-    main.querySelectorAll('.slot').forEach((slot) => {
-      const book = shelf.find((b) => b.id === slot.dataset.id);
-      bindPress(slot, () => openBook(book.id), () => bookActions(book));
-    });
-
-    // Derive spine colours from covers once, then remember them.
-    for (const book of shelf.filter((b) => b.cover?.data && !b.tone)) {
-      try {
-        const tone = await coverTone(new Blob([book.cover.data], { type: book.cover.type }));
-        const fresh = await db.getBook(book.id);
-        if (!fresh) continue;
-        await db.putBook({ ...fresh, tone });
-        book.tone = tone;
-        const spine = main.querySelector(`.slot[data-id="${book.id}"] .spine`);
-        if (spine) spine.setAttribute('style', spineStyle(book));
-      } catch {
-        // Undecodable cover: the palette colour stays.
-      }
+    if (mode === 'search') {
+      const hits = query
+        ? books.filter((b) => `${b.title}\n${b.author || ''}`.toLowerCase().includes(query))
+        : books;
+      main.innerHTML = hits.length
+        ? `<section class="section">
+            <h2 class="section-label"><span>${query ? '搜尋結果' : '全部書籍'}</span><span>${hits.length}</span></h2>
+            ${rowsHtml(hits)}
+          </section>`
+        : '<p class="no-results">找不到符合的書</p>';
+    } else {
+      // "Continue reading" is the book opened last; new imports wait in the list.
+      const opened = books.filter((b) => b.openedAt).sort((a, b) => b.openedAt - a.openedAt);
+      const current = opened[0] || books[0];
+      const others = books.filter((b) => b !== current);
+      main.innerHTML = currentHtml(current) + (others.length
+        ? `<section class="section">
+            <h2 class="section-label"><span>其他書籍</span><span>${others.length}</span></h2>
+            ${rowsHtml(others)}
+          </section>`
+        : '');
     }
+
+    main.querySelectorAll('[data-id]').forEach((node) => {
+      const book = books.find((b) => b.id === node.dataset.id);
+      bindPress(node, () => openBook(book.id), () => bookActions(book));
+    });
   }
 
   async function bookActions(book) {
@@ -228,7 +217,7 @@ export async function showLibrary(root, { openBook }) {
         <p class="action-head">${esc(book.title)}${book.author ? `<small>${esc(book.author)}</small>` : ''}</p>
         <button class="action" data-a="open">開始閱讀</button>
         <button class="action" data-a="edit">編輯書名和作者</button>
-        <button class="action danger" data-a="delete">從書架移除</button>
+        <button class="action danger" data-a="delete">從書庫移除</button>
       </div>`,
     });
     s.body.addEventListener('click', async (e) => {
@@ -275,7 +264,7 @@ export async function showLibrary(root, { openBook }) {
     });
   }
 
-  await render();
+  setMode('library');
   return {
     destroy() {
       urls.forEach((u) => URL.revokeObjectURL(u));
