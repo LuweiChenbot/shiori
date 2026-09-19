@@ -12,6 +12,9 @@ import { selectionPayload } from './textsel.js';
 const XHTML_NS = 'http://www.w3.org/1999/xhtml';
 const XML_NS = 'http://www.w3.org/XML/1998/namespace';
 const PAD_Y = 14;
+const SHIFT = 36; // px a chapter slides while handing over to the next
+const EASE_OUT = 'cubic-bezier(0.22, 0.61, 0.36, 1)';
+const EASE_IN = 'cubic-bezier(0.4, 0, 1, 1)';
 
 function readerCss(cfg, W, H) {
   const t = THEMES[cfg.theme] || THEMES.paper;
@@ -122,8 +125,13 @@ export class Paginator {
     return { W: Math.round(this.host.clientWidth), H: Math.round(this.host.clientHeight) };
   }
 
-  /** Load a chapter. `at` is 'start' | 'end' | { fraction } | { fragment }. */
-  async open({ doc, xml }, cfg, at = 'start') {
+  /**
+   * Load a chapter. `at` is 'start' | 'end' | { fraction } | { fragment }.
+   * `dir` (1 forward, -1 back) slides the old chapter out and the new one in.
+   */
+  async open({ doc, xml }, cfg, at = 'start', dir = 0) {
+    const frame = this.iframe;
+    const handOff = dir && this.ready;
     this.cfg = cfg;
     this.ready = false;
     const { W, H } = this.size();
@@ -148,10 +156,21 @@ export class Paginator {
 
     const source = xml ? new XMLSerializer().serializeToString(doc) : `<!DOCTYPE html>\n${html.outerHTML}`;
     const url = URL.createObjectURL(new Blob([source], { type: xml ? 'application/xhtml+xml' : 'text/html' }));
-    this.iframe.classList.add('loading');
+    if (handOff) {
+      frame.style.transition = `transform 150ms ${EASE_IN}, opacity 150ms linear`;
+      frame.style.transform = `translate3d(${-dir * SHIFT}px, 0, 0)`;
+      frame.style.opacity = '0';
+      await new Promise((r) => setTimeout(r, 150));
+    } else {
+      frame.style.transition = 'none';
+      frame.style.opacity = '0';
+    }
     await new Promise((resolve) => {
-      this.iframe.onload = resolve;
-      this.iframe.src = url;
+      frame.onload = resolve;
+      // replace(), not src=: each chapter would otherwise add a history entry,
+      // and going back would step through old chapters instead of leaving the book.
+      if (frame.contentWindow) frame.contentWindow.location.replace(url);
+      else frame.src = url;
     });
     if (this.url) URL.revokeObjectURL(this.url);
     this.url = url;
@@ -161,7 +180,14 @@ export class Paginator {
     this.measure();
     this.ready = true;
     this.position(at);
-    requestAnimationFrame(() => this.iframe.classList.remove('loading'));
+    frame.style.transition = 'none';
+    frame.style.transform = dir ? `translate3d(${dir * SHIFT}px, 0, 0)` : '';
+    frame.getBoundingClientRect();
+    requestAnimationFrame(() => {
+      frame.style.transition = dir ? `transform 320ms ${EASE_OUT}, opacity 240ms linear` : 'opacity 200ms linear';
+      frame.style.transform = '';
+      frame.style.opacity = '';
+    });
 
     // Late layout changes: web fonts and images.
     this.doc.fonts?.ready.then(() => this.remeasure());
@@ -180,8 +206,9 @@ export class Paginator {
   attach() {
     const d = this.doc;
     d.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: true });
+    d.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
     d.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: true });
-    d.addEventListener('touchcancel', () => (this.touch = null), { passive: true });
+    d.addEventListener('touchcancel', () => this.onTouchCancel(), { passive: true });
     d.addEventListener('mousedown', (e) => this.onMouseDown(e));
     d.addEventListener('mouseup', (e) => this.onMouseUp(e));
     d.addEventListener('click', (e) => this.onClick(e));
@@ -231,16 +258,57 @@ export class Paginator {
       return;
     }
     const t = e.touches[0];
-    this.touch = { x: t.clientX, y: t.clientY, t: Date.now(), hadSelection: this.hasSelection() };
+    const now = Date.now();
+    this.touch = {
+      x: t.clientX, y: t.clientY, t: now, lastX: t.clientX, lastT: now,
+      dx: 0, v: 0, dragging: false, hadSelection: this.hasSelection(),
+    };
+  }
+
+  // A quick horizontal move drags the page with the finger; a long press is
+  // left alone so it can become a text selection.
+  onTouchMove(e) {
+    const s = this.touch;
+    if (!s || s.hadSelection || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.x;
+    const dy = t.clientY - s.y;
+    if (!s.dragging) {
+      if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy) * 1.2 || Date.now() - s.t > 450 || this.hasSelection()) return;
+      s.dragging = true;
+      s.base = -this.page * this.W;
+      this.doc.body.style.transition = 'none';
+    }
+    if (e.cancelable) e.preventDefault();
+    const now = Date.now();
+    s.v = (t.clientX - s.lastX) / Math.max(1, now - s.lastT);
+    s.lastX = t.clientX;
+    s.lastT = now;
+    s.dx = dx;
+    // Resist at the first and last page of a chapter.
+    const edge = (this.page === 0 && dx > 0) || (this.page === this.pages - 1 && dx < 0);
+    this.doc.body.style.transform = `translate3d(${s.base + (edge ? dx * 0.35 : dx)}px, 0, 0)`;
   }
 
   onTouchEnd(e) {
     this.lastTouchEnd = Date.now();
-    const start = this.touch;
+    const s = this.touch;
     this.touch = null;
-    if (!start) return;
+    if (!s) return;
+    if (s.dragging) {
+      const fling = Date.now() - s.lastT < 80 ? s.v : 0;
+      if (s.dx < -this.W * 0.18 || (s.dx < -24 && fling < -0.3)) this.h.onNext();
+      else if (s.dx > this.W * 0.18 || (s.dx > 24 && fling > 0.3)) this.h.onPrev();
+      else this.goTo(this.page, true);
+      return;
+    }
     const t = e.changedTouches[0];
-    this.gesture(start, t.clientX, t.clientY, e.target);
+    this.gesture(s, t.clientX, t.clientY, e.target);
+  }
+
+  onTouchCancel() {
+    if (this.touch?.dragging) this.goTo(this.page, true);
+    this.touch = null;
   }
 
   // Mouse path for desktop browsers; ignores the compatibility mouse events
@@ -337,7 +405,7 @@ export class Paginator {
     const body = this.doc?.body;
     if (!body) return;
     this.page = Math.max(0, Math.min(this.pages - 1, p));
-    body.style.transition = animate ? 'transform 280ms cubic-bezier(.22,.8,.3,1)' : 'none';
+    body.style.transition = animate ? `transform 300ms ${EASE_OUT}` : 'none';
     body.style.transform = `translate3d(${-this.page * this.W}px, 0, 0)`;
     this.h.onPage?.(this.page, this.pages);
   }

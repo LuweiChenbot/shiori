@@ -30,35 +30,41 @@ export function icon(name, size = 22) {
 let openSheets = 0;
 export const sheetOpen = () => openSheets > 0;
 
+// Areas a downward drag can start from without fighting the content's own scrolling.
+const HANDLE = '.sheet-grip, .sheet-title, .tutor-head';
+const SCROLLERS = '.tutor-scroll, .sheet-body';
+
 /**
- * Bottom sheet. Drag the grip down to dismiss; `expandable` sheets can also be
- * dragged up to nearly full height.
+ * Bottom sheet, modelled on iOS: it slides up without dimming the page, follows
+ * the finger when dragged down (from its handle, or from content already
+ * scrolled to the top) and closes on a long enough drag or a quick flick.
+ * `expandable` sheets can also be pulled up to nearly full height.
  */
-export function openSheet({ html, className = '', clearBackdrop = false, expandable = false, onClose }) {
-  const backdrop = el(`<div class="sheet-backdrop${clearBackdrop ? ' clear' : ''}"></div>`);
+export function openSheet({ html, className = '', expandable = false, onClose }) {
+  // Transparent: it only catches taps outside the sheet. Dimming the page
+  // makes iOS re-tint the status bar, which flickers.
+  const backdrop = el('<div class="sheet-backdrop"></div>');
   const sheet = el(`<section class="sheet ${className}" role="dialog" aria-modal="true">
     <div class="sheet-grip"><span></span></div>
     <div class="sheet-body">${html}</div>
   </section>`);
   document.body.append(backdrop, sheet);
   openSheets++;
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    backdrop.classList.add('open');
-    sheet.classList.add('open');
-  }));
+  requestAnimationFrame(() => requestAnimationFrame(() => sheet.classList.add('open')));
 
   let closed = false;
   const close = () => {
     if (closed) return;
     closed = true;
     openSheets--;
-    backdrop.classList.remove('open');
-    sheet.classList.remove('open');
+    sheet.style.transition = '';
     sheet.style.transform = '';
+    sheet.classList.add('closing');
+    sheet.classList.remove('open');
     setTimeout(() => {
       sheet.remove();
       backdrop.remove();
-    }, 360);
+    }, 380);
     document.removeEventListener('keydown', onKey);
     onClose?.();
   };
@@ -68,30 +74,70 @@ export function openSheet({ html, className = '', clearBackdrop = false, expanda
   document.addEventListener('keydown', onKey);
   backdrop.addEventListener('click', close);
 
-  const grip = sheet.querySelector('.sheet-grip');
   let drag = null;
-  grip.addEventListener('pointerdown', (e) => {
-    drag = { y: e.clientY, dy: 0 };
-    grip.setPointerCapture(e.pointerId);
-    sheet.style.transition = 'none';
-  });
-  grip.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    drag.dy = e.clientY - drag.y;
-    if (drag.dy > 0) sheet.style.transform = `translateY(${drag.dy}px)`;
-  });
+  const begin = (y, target) => {
+    if (closed || target.closest('input, textarea, select')) return;
+    drag = {
+      y0: y, y, t: performance.now(), v: 0, dy: 0, state: 'pending',
+      handle: !!target.closest(HANDLE), scroller: target.closest(SCROLLERS),
+    };
+  };
+  const move = (y, event) => {
+    if (!drag || drag.state === 'ignored') return;
+    const dy = y - drag.y0;
+    if (drag.state === 'pending') {
+      if (Math.abs(dy) < 6) return;
+      const atTop = !drag.scroller || drag.scroller.scrollTop <= 0;
+      const down = dy > 0 && (drag.handle || atTop);
+      const up = dy < 0 && expandable && drag.handle && !sheet.classList.contains('tall');
+      if (!down && !up) {
+        drag.state = 'ignored';
+        return;
+      }
+      drag.state = 'dragging';
+      drag.y0 = y; // start tracking from here so the sheet doesn't jump
+      sheet.style.transition = 'none';
+    }
+    if (event?.cancelable) event.preventDefault();
+    const now = performance.now();
+    drag.v = (y - drag.y) / Math.max(1, now - drag.t);
+    drag.y = y;
+    drag.t = now;
+    drag.dy = y - drag.y0;
+    // Downwards the sheet follows the finger; upwards it resists.
+    const offset = drag.dy > 0 ? drag.dy : -Math.sqrt(-drag.dy) * 4;
+    sheet.style.transform = `translateY(${offset}px)`;
+  };
   const end = () => {
     if (!drag) return;
-    const { dy } = drag;
+    const { state, dy, v, t } = drag;
     drag = null;
+    if (state !== 'dragging') return;
+    const flick = performance.now() - t < 80 ? v : 0;
     sheet.style.transition = '';
+    if (dy > 0 && (dy > Math.min(140, sheet.offsetHeight * 0.3) || flick > 0.5)) {
+      close();
+      return;
+    }
     sheet.style.transform = '';
-    if (dy > 90) close();
-    else if (expandable && dy < -40) sheet.classList.add('tall');
-    else if (expandable && Math.abs(dy) < 6) sheet.classList.toggle('tall');
+    if (dy < -30 || flick < -0.5) sheet.classList.add('tall');
   };
-  grip.addEventListener('pointerup', end);
-  grip.addEventListener('pointercancel', end);
+
+  // Touch drives the gesture on phones (it can stop the content from scrolling);
+  // the mouse can use the handle on desktop.
+  sheet.addEventListener('touchstart', (e) => e.touches.length === 1 && begin(e.touches[0].clientY, e.target), { passive: true });
+  sheet.addEventListener('touchmove', (e) => move(e.touches[0].clientY, e), { passive: false });
+  sheet.addEventListener('touchend', end);
+  sheet.addEventListener('touchcancel', end);
+  const grip = sheet.querySelector('.sheet-grip');
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    begin(e.clientY, grip);
+    grip.setPointerCapture(e.pointerId);
+  });
+  grip.addEventListener('pointermove', (e) => e.pointerType === 'mouse' && move(e.clientY));
+  grip.addEventListener('pointerup', (e) => e.pointerType === 'mouse' && end());
+  if (expandable) grip.addEventListener('click', () => sheet.classList.toggle('tall'));
 
   return { sheet, body: sheet.querySelector('.sheet-body'), close };
 }

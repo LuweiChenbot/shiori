@@ -36,20 +36,18 @@ export async function openReader(root, id, { onExit }) {
       <button data-mode="explain">講解</button><span class="sep"></span><button data-mode="translate">翻譯</button>
     </div>
     <header class="rd-top">
-      <button class="icon-btn" data-act="back" aria-label="返回書架">${icon('back', 24)}</button>
+      <button class="icon-btn" data-act="back" aria-label="返回書庫">${icon('back', 24)}</button>
       <div class="rd-title">${esc(record.title)}</div>
-      <button class="icon-btn" data-act="toc" aria-label="目錄">${icon('toc', 23)}</button>
-      <button class="icon-btn aa" data-act="aa" aria-label="排版">Aa</button>
+      <span class="rd-spacer" aria-hidden="true"></span>
     </header>
     <footer class="rd-bottom">
-      <div class="scrub-label"></div>
-      <input class="scrub" type="range" min="0" max="1000" step="1" aria-label="閱讀進度" />
+      <button class="icon-btn" data-act="toc" aria-label="目錄">${icon('toc', 23)}</button>
+      <button class="icon-btn aa" data-act="aa" aria-label="排版">Aa</button>
     </footer>
   </div>`);
   root.appendChild(view);
   const $ = (s) => view.querySelector(s);
   const selBar = $('.sel-bar');
-  const scrub = $('.scrub');
 
   let cur = 0;
   let curPath = '';
@@ -87,7 +85,6 @@ export async function openReader(root, id, { onExit }) {
       progress = { spine: cur, fraction: page / pages, percent };
       $('.rd-pageno').textContent = pages > 1 ? `${page + 1} / ${pages}` : '';
       $('.rd-percent').textContent = `${Math.min(100, Math.round(percent))}%`;
-      if (document.activeElement !== scrub) scrub.value = Math.round(percent * 10);
       clearTimeout(saveTimer);
       saveTimer = setTimeout(flush, 500);
     },
@@ -108,9 +105,13 @@ export async function openReader(root, id, { onExit }) {
     onKey,
   });
 
-  async function go(i, at) {
-    if (i < 0) return toast('已經是開頭了');
-    if (i >= book.spine.length) return toast('已經讀完了');
+  /** Show chapter i. `dir` is 1 when reading on into it, -1 when going back. */
+  async function go(i, at, dir = 0) {
+    if (i < 0 || i >= book.spine.length) {
+      pag.goTo(pag.page, true);
+      toast(i < 0 ? '已經是開頭了' : '已經讀完了');
+      return;
+    }
     loading = true;
     try {
       const chapter = await book.chapter(i);
@@ -118,7 +119,7 @@ export async function openReader(root, id, { onExit }) {
       curPath = chapter.path;
       payload = null;
       selBar.hidden = true;
-      await pag.open(chapter, settings.get().reader, at);
+      await pag.open(chapter, settings.get().reader, at, dir);
       $('.rd-chapter').textContent = chapterLabel() || record.title;
     } catch (err) {
       console.error(err);
@@ -131,13 +132,13 @@ export async function openReader(root, id, { onExit }) {
   function next() {
     if (loading) return;
     toggleChrome(false);
-    if (!pag.next()) go(cur + 1, 'start');
+    if (!pag.next()) go(cur + 1, 'start', 1);
   }
 
   function prev() {
     if (loading) return;
     toggleChrome(false);
-    if (!pag.prev()) go(cur - 1, 'end');
+    if (!pag.prev()) go(cur - 1, 'end', -1);
   }
 
   function onKey(e) {
@@ -168,19 +169,6 @@ export async function openReader(root, id, { onExit }) {
   $('[data-act="toc"]').addEventListener('click', openToc);
   $('[data-act="aa"]').addEventListener('click', openAa);
 
-  scrub.addEventListener('input', () => {
-    const target = (scrub.value / 1000) * total;
-    const i = Math.max(0, before.findLastIndex((b) => b <= target));
-    $('.scrub-label').textContent = `${chapterLabel(i) || `第 ${i + 1} 部分`} · ${Math.round(scrub.value / 10)}%`;
-  });
-  scrub.addEventListener('change', () => {
-    const target = (scrub.value / 1000) * total;
-    const i = Math.max(0, before.findLastIndex((b) => b <= target));
-    $('.scrub-label').textContent = '';
-    scrub.blur();
-    go(i, { fraction: Math.min(0.999, (target - before[i]) / weights[i]) });
-  });
-
   function openToc() {
     toggleChrome(false);
     const entries = book.toc.length
@@ -210,7 +198,6 @@ export async function openReader(root, id, { onExit }) {
     toggleChrome(false);
     const s = openSheet({
       className: 'aa-sheet',
-      clearBackdrop: true,
       html: `<div class="aa-panel">
         <div class="aa-row">
           <button class="aa-btn" data-size="-1" aria-label="縮小字級"><span style="font-size:14px">A</span></button>

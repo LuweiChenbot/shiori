@@ -21,7 +21,7 @@ const exitReader = () => {
   else location.replace('#/');
 };
 
-async function route() {
+async function swap() {
   const previous = view;
   view = null;
   await previous?.destroy?.();
@@ -36,6 +36,17 @@ async function route() {
     if (m) location.replace('#/');
   }
   if (!m) fromLibrary = false;
+}
+
+// Screen changes run one at a time. Between library and reader they morph
+// (see "view transitions" in styles.css) where the browser supports it.
+let pending = Promise.resolve();
+function route() {
+  pending = pending.then(() => {
+    const animate = view && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!animate) return swap();
+    return document.startViewTransition(swap).finished.catch(() => {});
+  });
 }
 
 window.addEventListener('hashchange', route);

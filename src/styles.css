@@ -11,7 +11,9 @@
   --danger: #A8402F;
   --seal: #B23A2A;
   --hl: rgba(201, 160, 90, 0.3);
-  --shadow-sheet: 0 -10px 40px rgba(60, 40, 20, 0.14);
+  --shadow-sheet: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 -8px 36px rgba(40, 28, 16, 0.16);
+  /* One curve for everything that moves: close to the iOS sheet spring. */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
   --shadow-cover: 0 1px 1px rgba(0, 0, 0, 0.05), 0 8px 20px rgba(70, 45, 20, 0.16);
   --ui: -apple-system, BlinkMacSystemFont, "PingFang TC", "Heiti TC", "Noto Sans TC", "Helvetica Neue", sans-serif;
   --ja: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", var(--ui);
@@ -32,7 +34,7 @@
   --chip: rgba(0, 0, 0, 0.05);
   --on: #FFFFFF;
   --hl: rgba(255, 204, 0, 0.28);
-  --shadow-sheet: 0 -10px 40px rgba(0, 0, 0, 0.12);
+  --shadow-sheet: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 -8px 36px rgba(0, 0, 0, 0.14);
   --shadow-cover: 0 1px 1px rgba(0, 0, 0, 0.05), 0 8px 20px rgba(0, 0, 0, 0.14);
 }
 
@@ -48,7 +50,7 @@
   --on: #2B2926;
   --danger: #E08A76;
   --seal: #C44A36;
-  --shadow-sheet: 0 -10px 40px rgba(0, 0, 0, 0.55);
+  --shadow-sheet: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 -8px 36px rgba(0, 0, 0, 0.6);
   --shadow-cover: 0 1px 1px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.45);
   color-scheme: dark;
 }
@@ -120,24 +122,25 @@ a { color: inherit; }
   min-height: 100dvh;
   max-width: 720px;
   margin: 0 auto;
-  padding: calc(var(--safe-t) + 20px) 24px calc(var(--safe-b) + 96px);
+  padding: var(--safe-t) 24px calc(var(--safe-b) + 96px);
 }
 
-.lib-head {
+/* iOS large-title layout: a 44px navigation row, then the title below it,
+   clear of the status bar's edge blur. */
+.lib-nav {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  min-height: 44px;
-  margin-bottom: 26px;
+  justify-content: flex-end;
+  height: 44px;
+  margin-right: -9px;
 }
 .lib-title {
-  margin: 0;
-  font: 600 32px/1.1 var(--ui);
-  letter-spacing: 0.02em;
+  margin: 2px 0 24px;
+  font: 700 34px/41px var(--ui);
+  letter-spacing: 0.01em;
 }
-.lib-head .icon-btn { margin-right: -9px; }
 
-.lib-search { margin: -10px 0 26px; }
+.lib-search { margin: -8px 0 26px; }
 .search-field {
   display: flex;
   align-items: center;
@@ -360,80 +363,53 @@ a { color: inherit; }
   min-width: 100%;
   height: 100%;
   background: transparent;
-  transition: opacity 0.16s ease-out;
 }
-.page-frame.loading { opacity: 0; transition: none; }
 
 .rd-top, .rd-bottom {
   position: absolute;
   left: 0;
   right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
   background: var(--bg);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-  z-index: 5;
+  transition: opacity 0.25s var(--ease), transform 0.3s var(--ease);
 }
 .rd-top {
   top: 0;
-  display: flex;
-  align-items: center;
   gap: 2px;
   padding: calc(var(--safe-t) + 4px) 8px 6px;
   border-bottom: 1px solid var(--line);
-  transform: translateY(-8px);
+  transform: translateY(-6px);
 }
 .rd-title {
   flex: 1;
   min-width: 0;
+  padding: 0 6px;
   text-align: center;
   font-size: 15px;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 6px;
 }
-.icon-btn.aa { font: 500 17px var(--mincho); width: 44px; }
+.rd-spacer { flex: none; width: 40px; }
+/* Contents bottom-left, typography bottom-right. */
 .rd-bottom {
   bottom: 0;
-  padding: 10px 22px calc(var(--safe-b) + 14px);
+  justify-content: space-between;
+  padding: 6px 10px calc(var(--safe-b) + 8px);
   border-top: 1px solid var(--line);
-  transform: translateY(8px);
+  transform: translateY(6px);
 }
+.icon-btn.aa { width: 44px; font: 500 17px var(--mincho); }
 .reader.chrome .rd-top, .reader.chrome .rd-bottom {
   opacity: 1;
   pointer-events: auto;
   transform: none;
 }
-.scrub-label {
-  min-height: 18px;
-  font-size: 12px;
-  color: var(--muted);
-  text-align: center;
-  margin-bottom: 4px;
-}
-.scrub {
-  width: 100%;
-  -webkit-appearance: none;
-  appearance: none;
-  background: transparent;
-  height: 28px;
-  margin: 0;
-}
-.scrub::-webkit-slider-runnable-track { height: 2px; background: var(--faint); border-radius: 1px; }
-.scrub::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
-  margin-top: -8px;
-  border-radius: 50%;
-  background: var(--fg);
-  border: 3px solid var(--bg);
-  box-shadow: 0 0 0 1px var(--faint);
-}
-.scrub::-moz-range-track { height: 2px; background: var(--faint); }
-.scrub::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--fg); border: 0; }
 
 .sel-bar {
   position: absolute;
@@ -467,16 +443,13 @@ a { color: inherit; }
 
 /* ------------------------------------------------------------------ sheets */
 
+/* Catches taps outside a sheet. Deliberately not dimmed (see openSheet). */
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(20, 16, 12, 0.28);
-  opacity: 0;
-  transition: opacity 0.3s;
   z-index: 40;
+  -webkit-tap-highlight-color: transparent;
 }
-.sheet-backdrop.clear { background: transparent; }
-.sheet-backdrop.open { opacity: 1; }
 
 .sheet {
   position: fixed;
@@ -492,11 +465,13 @@ a { color: inherit; }
   border-radius: 16px 16px 0 0;
   box-shadow: var(--shadow-sheet);
   transform: translateY(105%);
-  transition: transform 0.34s cubic-bezier(0.2, 0.85, 0.25, 1), height 0.3s cubic-bezier(0.2, 0.85, 0.25, 1);
+  transition: transform 0.5s var(--ease), height 0.5s var(--ease);
   z-index: 41;
   padding-bottom: var(--safe-b);
+  will-change: transform;
 }
 .sheet.open { transform: none; }
+.sheet.closing { transition-duration: 0.36s; }
 .sheet-grip {
   flex: none;
   height: 22px;
@@ -755,4 +730,24 @@ a { color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+/* ------------------------------------------------------------------ view transitions */
+
+/* Opening a book grows its cover into the page; closing shrinks it back. */
+.reader { view-transition-name: book; }
+::view-transition-group(book) {
+  animation-duration: 0.5s;
+  animation-timing-function: var(--ease);
+}
+::view-transition-old(book),
+::view-transition-new(book) {
+  height: 100%;
+  object-fit: cover;
+  animation-duration: 0.5s;
+  animation-timing-function: var(--ease);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.3s;
 }

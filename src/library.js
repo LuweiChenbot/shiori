@@ -1,6 +1,7 @@
-// The library. The book you are reading comes first; the others follow as a
+// The library. The book you are reading comes first; every book follows as a
 // plain list. A tab bar at the bottom switches between the library and search,
-// and opens settings.
+// and opens settings. Switching is synchronous (books are held in memory) so a
+// tab never shows a half-updated page.
 
 import { db, requestPersistence } from './db.js';
 import { importFile } from './book.js';
@@ -34,15 +35,17 @@ function progressHtml(book) {
 
 export async function showLibrary(root, { openBook }) {
   const urls = [];
+  let books = [];
   let mode = 'library';
   let query = '';
+  const scrollY = { library: 0, search: 0 };
 
   root.innerHTML = '';
   const view = el(`<div class="library">
-    <header class="lib-head">
-      <h1 class="lib-title">書庫</h1>
+    <div class="lib-nav">
       <button class="icon-btn" data-act="import" aria-label="匯入書籍">${icon('plus', 26)}</button>
-    </header>
+    </div>
+    <h1 class="lib-title">書庫</h1>
     <form class="lib-search" role="search" hidden>
       <label class="search-field">${icon('search', 17)}<input type="search" placeholder="書名或作者" enterkeyhint="search" aria-label="搜尋書名或作者" /></label>
     </form>
@@ -73,7 +76,7 @@ export async function showLibrary(root, { openBook }) {
         toast(err.message || `無法匯入「${file.name}」`, 3500);
       }
     }
-    await render();
+    await refresh();
     return last;
   }
 
@@ -85,9 +88,10 @@ export async function showLibrary(root, { openBook }) {
   $('[data-act="import"]').addEventListener('click', () => picker.click());
 
   function setMode(next) {
+    scrollY[mode] = window.scrollY;
     mode = next;
     $('.lib-title').textContent = mode === 'search' ? '搜尋' : '書庫';
-    $('[data-act="import"]').hidden = mode === 'search';
+    $('[data-act="import"]').style.visibility = mode === 'search' ? 'hidden' : '';
     searchForm.hidden = mode !== 'search';
     view.querySelectorAll('[data-tab]').forEach((b) => {
       const on = b.dataset.tab === mode;
@@ -95,14 +99,13 @@ export async function showLibrary(root, { openBook }) {
       if (on) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     });
-    if (mode === 'search') {
-      searchInput.focus();
-    } else {
+    if (mode !== 'search') {
       query = '';
       searchInput.value = '';
     }
     render();
-    window.scrollTo(0, 0);
+    window.scrollTo(0, scrollY[mode]);
+    if (mode === 'search') searchInput.focus({ preventScroll: true });
   }
 
   view.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
@@ -125,13 +128,16 @@ export async function showLibrary(root, { openBook }) {
     if (book) openBook(book.id);
   }
 
+  // The current book's cover carries the view-transition name, so opening
+  // or closing it morphs between the cover and the page.
   function coverHtml(book, size) {
+    const vt = size === 'lg' ? ' style="view-transition-name: book"' : '';
     if (book.cover?.data) {
       const url = URL.createObjectURL(new Blob([book.cover.data], { type: book.cover.type }));
       urls.push(url);
-      return `<span class="cover ${size}"><img src="${url}" alt="" /></span>`;
+      return `<span class="cover ${size}"${vt}><img src="${url}" alt="" /></span>`;
     }
-    return `<span class="cover ${size} plain">
+    return `<span class="cover ${size} plain"${vt}>
       <span class="plain-title">${esc(book.title)}</span>
       ${book.author ? `<span class="plain-author">${esc(book.author)}</span>` : ''}
     </span>`;
@@ -165,9 +171,13 @@ export async function showLibrary(root, { openBook }) {
       </button></li>`).join('')}</ul>`;
   }
 
-  async function render() {
+  async function refresh() {
+    books = (await db.allBooks()).sort((a, b) => b.addedAt - a.addedAt);
+    render();
+  }
+
+  function render() {
     urls.splice(0).forEach((u) => URL.revokeObjectURL(u));
-    const books = (await db.allBooks()).sort((a, b) => (b.openedAt || b.addedAt) - (a.openedAt || a.addedAt));
 
     if (!books.length) {
       main.innerHTML = `<div class="empty">
@@ -192,22 +202,28 @@ export async function showLibrary(root, { openBook }) {
           </section>`
         : '<p class="no-results">找不到符合的書</p>';
     } else {
-      // "Continue reading" is the book opened last; new imports wait in the list.
+      // "Continue reading" is the book opened last; the list below is the whole
+      // library in the order books were added, so it never reshuffles.
       const opened = books.filter((b) => b.openedAt).sort((a, b) => b.openedAt - a.openedAt);
       const current = opened[0] || books[0];
-      const others = books.filter((b) => b !== current);
-      main.innerHTML = currentHtml(current) + (others.length
-        ? `<section class="section">
-            <h2 class="section-label"><span>其他書籍</span><span>${others.length}</span></h2>
-            ${rowsHtml(others)}
-          </section>`
-        : '');
+      main.innerHTML = `${currentHtml(current)}
+        <section class="section">
+          <h2 class="section-label"><span>全部書籍</span><span>${books.length}</span></h2>
+          ${rowsHtml(books)}
+        </section>`;
     }
 
     main.querySelectorAll('[data-id]').forEach((node) => {
       const book = books.find((b) => b.id === node.dataset.id);
-      bindPress(node, () => openBook(book.id), () => bookActions(book));
+      bindPress(node, () => open(book, node), () => bookActions(book));
     });
+  }
+
+  function open(book, node) {
+    main.querySelectorAll('.cover').forEach((c) => (c.style.viewTransitionName = ''));
+    const cover = node.querySelector('.cover');
+    if (cover) cover.style.viewTransitionName = 'book';
+    openBook(book.id);
   }
 
   async function bookActions(book) {
@@ -230,7 +246,7 @@ export async function showLibrary(root, { openBook }) {
         const ok = await confirmSheet({ title: `移除《${book.title}》？`, message: '閱讀進度也會一起刪除。', action: '移除', destructive: true });
         if (ok) {
           await db.deleteBook(book.id);
-          render();
+          refresh();
         }
       } else if (a === 'edit') {
         editMeta(book);
@@ -260,10 +276,11 @@ export async function showLibrary(root, { openBook }) {
       const fresh = await db.getBook(book.id);
       await db.putBook({ ...fresh, title: title.value.trim() || fresh.title, author: author.value.trim() });
       s.close();
-      render();
+      refresh();
     });
   }
 
+  books = (await db.allBooks()).sort((a, b) => b.addedAt - a.addedAt);
   setMode('library');
   return {
     destroy() {
