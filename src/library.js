@@ -42,10 +42,10 @@ export async function showLibrary(root, { openBook }) {
 
   root.innerHTML = '';
   const view = el(`<div class="library">
-    <div class="lib-nav">
+    <header class="lib-head">
+      <h1 class="lib-title">書庫</h1>
       <button class="icon-btn" data-act="import" aria-label="匯入書籍">${icon('plus', 26)}</button>
-    </div>
-    <h1 class="lib-title">書庫</h1>
+    </header>
     <form class="lib-search" role="search" hidden>
       <label class="search-field">${icon('search', 17)}<input type="search" placeholder="書名或作者" enterkeyhint="search" aria-label="搜尋書名或作者" /></label>
     </form>

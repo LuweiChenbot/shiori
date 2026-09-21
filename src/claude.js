@@ -59,3 +59,28 @@ function echoContent(content) {
   });
   return out;
 }
+
+/** One JSON answer shaped by `schema` (structured outputs), for background work. */
+export async function completeJSON({ apiKey, model, system, prompt, schema, thinking = false, maxTokens = 8000, signal }) {
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2 });
+  const params = {
+    model,
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: 'user', content: prompt }],
+    output_config: { format: { type: 'json_schema', schema } },
+  };
+  if (!model.startsWith('claude-haiku')) params.output_config.effort = thinking ? 'medium' : 'low';
+  if (model === 'claude-opus-5') {
+    params.betas = ['server-side-fallback-2026-07-01'];
+    params.fallbacks = 'default';
+  }
+  try {
+    const message = await client.beta.messages.create(params, { signal });
+    if (message.stop_reason === 'refusal') throw new TutorError('模型拒絕了這個請求。', 'refusal');
+    const text = message.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    return JSON.parse(text || '{}');
+  } catch (err) {
+    throw explain(err);
+  }
+}

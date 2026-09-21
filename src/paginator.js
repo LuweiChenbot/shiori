@@ -20,6 +20,9 @@ function readerCss(cfg, W, H) {
   const t = THEMES[cfg.theme] || THEMES.paper;
   const font = (FONTS[cfg.font] || FONTS.mincho).css;
   const m = cfg.margin;
+  const furigana = cfg.furigana || 'off';
+  // Readings sit in the space between lines, so leave room for them.
+  const lineHeight = furigana === 'off' ? cfg.lineHeight : Math.max(cfg.lineHeight, 2.05);
   return `
 html, body, body * {
   writing-mode: horizontal-tb !important;
@@ -48,7 +51,7 @@ body {
   background: transparent !important;
   color: ${t.fg} !important;
   font-family: ${font} !important;
-  line-height: ${cfg.lineHeight} !important;
+  line-height: ${lineHeight} !important;
   text-align: justify;
   line-break: strict;
   font-kerning: normal;
@@ -83,6 +86,27 @@ a, a * { text-decoration-color: ${t.muted} !important; }
 ::selection { background: ${t.sel}; }
 ::highlight(shiori-focus) { background-color: ${t.hl}; }
 #shiori-end { display: inline-block; width: 1px; height: 1px; }
+/* Context-aware furigana (furigana.js): drawn above the kanji, outside the text flow. */
+.fg { position: relative; }
+.fg::before {
+  content: attr(data-r);
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  font-size: var(--fs, .5em);
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  color: ${t.muted};
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+  animation: fg-in .3s ease-out;
+}
+@keyframes fg-in { from { opacity: 0; } }
+${furigana === 'off' ? '.fg::before { display: none; }' : ''}
+${furigana === 'hard' ? '.fg:not(.hard)::before { display: none; }' : ''}
 `;
 }
 

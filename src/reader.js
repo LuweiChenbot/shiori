@@ -9,6 +9,13 @@ import { THEMES, FONTS, LINE_HEIGHTS, applyTheme } from './theme.js';
 import { el, esc, icon, toast, openSheet, sheetOpen } from './ui.js';
 import { openTutor } from './tutor.js';
 import { openSettings } from './settings-view.js';
+import { Furigana } from './furigana.js';
+
+const FURIGANA = [
+  { label: '關', value: 'off' },
+  { label: '難詞', value: 'hard' },
+  { label: '全部', value: 'all' },
+];
 
 const MARGINS = [
   { label: '窄', value: 16 },
@@ -78,6 +85,7 @@ export async function openReader(root, id, { onExit }) {
 
   // ---------------------------------------------------------- paging
 
+  let furigana = null; // created right after the paginator it reads from
   const pag = new Paginator($('.rd-page'), {
     onPage(page, pages) {
       const done = (page + 1) / pages;
@@ -87,6 +95,7 @@ export async function openReader(root, id, { onExit }) {
       $('.rd-percent').textContent = `${Math.min(100, Math.round(percent))}%`;
       clearTimeout(saveTimer);
       saveTimer = setTimeout(flush, 500);
+      furigana?.schedule();
     },
     onNext: next,
     onPrev: prev,
@@ -106,6 +115,8 @@ export async function openReader(root, id, { onExit }) {
   });
 
   /** Show chapter i. `dir` is 1 when reading on into it, -1 when going back. */
+  furigana = new Furigana(pag);
+
   async function go(i, at, dir = 0) {
     if (i < 0 || i >= book.spine.length) {
       pag.goTo(pag.page, true);
@@ -121,6 +132,7 @@ export async function openReader(root, id, { onExit }) {
       selBar.hidden = true;
       await pag.open(chapter, settings.get().reader, at, dir);
       $('.rd-chapter').textContent = chapterLabel() || record.title;
+      furigana?.schedule();
     } catch (err) {
       console.error(err);
       toast(`這一章無法顯示：${err.message}`, 3500);
@@ -210,6 +222,8 @@ export async function openReader(root, id, { onExit }) {
           `<button data-font="${k}" style="font-family:${f.css.replace(/"/g, "'")}">${f.label}</button>`).join('')}</div></div>
         <div class="aa-row"><span class="aa-label">行距</span><div class="seg">${LINE_HEIGHTS.map((l) =>
           `<button data-lh="${l.value}">${l.label}</button>`).join('')}</div></div>
+        <div class="aa-row"><span class="aa-label">注音</span><div class="seg">${FURIGANA.map((f) =>
+          `<button data-furigana="${f.value}">${f.label}</button>`).join('')}</div></div>
         <div class="aa-row"><span class="aa-label">頁邊距</span><div class="seg">${MARGINS.map((m) =>
           `<button data-margin="${m.value}">${m.label}</button>`).join('')}</div></div>
       </div>`,
@@ -221,6 +235,7 @@ export async function openReader(root, id, { onExit }) {
       s.body.querySelectorAll('[data-font]').forEach((b) => b.classList.toggle('on', b.dataset.font === r.font));
       s.body.querySelectorAll('[data-lh]').forEach((b) => b.classList.toggle('on', +b.dataset.lh === r.lineHeight));
       s.body.querySelectorAll('[data-margin]').forEach((b) => b.classList.toggle('on', +b.dataset.margin === r.margin));
+      s.body.querySelectorAll('[data-furigana]').forEach((b) => b.classList.toggle('on', b.dataset.furigana === (r.furigana || 'off')));
     };
     s.body.addEventListener('click', (e) => {
       const b = e.target.closest('button');
@@ -231,6 +246,7 @@ export async function openReader(root, id, { onExit }) {
       if (b.dataset.font) settings.update({ reader: { font: b.dataset.font } });
       if (b.dataset.lh) settings.update({ reader: { lineHeight: +b.dataset.lh } });
       if (b.dataset.margin) settings.update({ reader: { margin: +b.dataset.margin } });
+      if (b.dataset.furigana) settings.update({ reader: { furigana: b.dataset.furigana } });
       sync();
     });
     sync();
@@ -239,6 +255,7 @@ export async function openReader(root, id, { onExit }) {
   const unsubscribe = settings.subscribe((cfg) => {
     applyTheme(cfg.reader.theme);
     pag.relayout(cfg.reader);
+    furigana?.schedule();
   });
 
   // ---------------------------------------------------------- tutor

@@ -18,6 +18,13 @@ export async function streamReply({ provider, apiKey, model, ...rest }) {
   return impl.streamReply({ apiKey, model, ...rest });
 }
 
+/** A single structured (JSON) answer from whichever supplier is selected. */
+export async function completeJSON({ provider, apiKey, model, ...rest }) {
+  if (!apiKey) throw new TutorError('還沒有設定 API Key。', 'nokey');
+  const impl = provider === 'anthropic' ? await import('./claude.js') : await import('./deepseek.js');
+  return impl.completeJSON({ apiKey, model, ...rest });
+}
+
 /** Plain text of a message's content, whatever shape a supplier stored. */
 export function plainText(content) {
   if (typeof content === 'string') return content;

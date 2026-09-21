@@ -25,7 +25,7 @@ function cleanCount(data, rawOffset) {
   return cleanData(data.slice(0, rawOffset)).length;
 }
 
-function rawOffset(data, cleanOffset) {
+export function rawOffset(data, cleanOffset) {
   if (cleanOffset <= 0) return 0;
   for (let i = 1; i <= data.length; i++) if (cleanCount(data, i) >= cleanOffset) return i;
   return data.length;
@@ -45,7 +45,7 @@ export function blockOf(node) {
 }
 
 /** Flattened text of a block with a map back to its text nodes. */
-function indexBlock(block) {
+export function indexBlock(block) {
   let text = '';
   const nodes = textNodes(block).map((node) => {
     const t = cleanData(node.data);

@@ -33,6 +33,8 @@ export async function streamReply({ apiKey, model, system, messages, task, deepT
     body.reasoning_effort = 'low';
   } else {
     body.thinking = { type: 'disabled' };
+    // Low temperature keeps the fixed answer format steady (thinking mode ignores it).
+    if (task !== 'followup') body.temperature = 0.3;
   }
 
   let res;
@@ -98,4 +100,29 @@ export async function streamReply({ apiKey, model, system, messages, task, deepT
   if (finish === 'content_filter') throw new TutorError('這段內容觸發了 DeepSeek 的內容限制，沒有生成回答。', 'refusal');
   if (finish === 'insufficient_system_resource') throw new TutorError('DeepSeek 資源不足，請稍後重試。');
   return { content: text, model, truncated: finish === 'length' };
+}
+
+/** One JSON answer (no streaming), for background work such as readings. */
+export async function completeJSON({ apiKey, model, system, prompt, thinking = false, maxTokens = 8000, signal }) {
+  let res;
+  try {
+    res = await fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        ...(thinking
+          ? { thinking: { type: 'enabled' }, reasoning_effort: 'low', max_tokens: 32000 }
+          : { thinking: { type: 'disabled' }, temperature: 0.1, max_tokens: maxTokens }),
+        response_format: { type: 'json_object' },
+        messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+      }),
+      signal,
+    });
+  } catch (err) {
+    throw new TutorError(err.name === 'AbortError' ? '已取消' : '網路連線失敗', err.name === 'AbortError' ? 'abort' : 'error');
+  }
+  if (!res.ok) throw new TutorError(STATUS[res.status] || `出錯了（${res.status}）`, res.status === 401 ? 'auth' : 'error');
+  const data = await res.json();
+  return JSON.parse(data.choices?.[0]?.message?.content || '{}');
 }

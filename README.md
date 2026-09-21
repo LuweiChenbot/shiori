@@ -20,7 +20,8 @@ On an iPhone on the same Wi-Fi, open `http://<your-Mac-IP>:5173`.
 ## Using it
 
 - **Turning pages:** tap the right or left third of the screen, or drag the page; it follows your finger. Tap the middle to show the toolbars: back at the top, contents bottom-left, Aa typography bottom-right.
-- **Studying:** long-press to select text, then tap **講解** or **翻譯**. In the sheet you can widen the scope to **整句** (the full sentence) or **整段** (the paragraph) and type follow-up questions.
+- **Studying:** long-press to select text, then tap **講解** or **翻譯**. Explanations always use the same five sections in the same order: 譯文, 詞語, 句法, 句子結構, 語氣語感. In the sheet you can widen the scope to **整句** (the full sentence) or **整段** (the paragraph) and type follow-up questions.
+- **Furigana (Aa → 注音):** 關, 難詞 (N2 and above) or 全部. Readings are worked out by the model from the whole paragraph, so heteronyms (今日, 行った, 方, 一日, 人気, 目下…) get the reading they have in that sentence. Each paragraph is annotated once and cached; the next page is prepared while you read. With 深度思考 on, the page you are reading is re-checked with reasoning in the background and corrected in place. The book's own ruby is left as it is.
 - **Settings (⚙ on the shelf):** the AI supplier and its API key, the model, and the explanation language. DeepSeek offers Flash (default) and V4 Pro; Claude offers Sonnet 5 (default), Opus 5 and Haiku 4.5. Each supplier remembers its own key and model. Translations run without thinking for speed; explanations and follow-ups think first.
 - **Library:** the book you opened last is under 繼續閱讀; 全部書籍 lists every book in the order it was added. The tab bar switches to 搜尋 (filter by title or author) and opens 設定. Long-press a book to edit its title and author or to remove it.
 
@@ -42,6 +43,7 @@ src/
   textsel.js       selection → {selection, sentence, paragraph, context}, furigana stripped
   book.js          EPUB parsing (JSZip), TXT/Aozora parsing, import
   tutor.js         translation/explanation sheet with follow-ups
+  furigana.js      context-aware furigana: batching, caching, okurigana split, re-check
   prompts.js       tutor prompts
   llm.js           supplier-independent entry point
   deepseek.js      DeepSeek chat completions (streaming)

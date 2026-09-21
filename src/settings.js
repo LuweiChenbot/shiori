@@ -35,7 +35,8 @@ const DEFAULTS = {
   lang: 'zh',
   // Explanations reason before answering: more careful, but DeepSeek then takes ~30s.
   deepThink: false,
-  reader: { fontSize: 19, lineHeight: 1.85, theme: 'paper', font: 'mincho', margin: 26 },
+  // furigana: 'off' | 'hard' (N2 and above) | 'all'
+  reader: { fontSize: 19, lineHeight: 1.85, theme: 'paper', font: 'mincho', margin: 26, furigana: 'off' },
 };
 
 function load() {

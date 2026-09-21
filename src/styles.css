@@ -122,20 +122,20 @@ a { color: inherit; }
   min-height: 100dvh;
   max-width: 720px;
   margin: 0 auto;
-  padding: var(--safe-t) 24px calc(var(--safe-b) + 96px);
+  /* The top 46px stay empty, like the navigation-bar space above an iOS large
+     title: the status bar's edge blur reaches into it. */
+  padding: calc(var(--safe-t) + 46px) 24px calc(var(--safe-b) + 96px);
 }
 
-/* iOS large-title layout: a 44px navigation row, then the title below it,
-   clear of the status bar's edge blur. */
-.lib-nav {
+.lib-head {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  height: 44px;
-  margin-right: -9px;
+  justify-content: space-between;
+  margin-bottom: 24px;
 }
+.lib-head .icon-btn { margin-right: -9px; }
 .lib-title {
-  margin: 2px 0 24px;
+  margin: 0;
   font: 700 34px/41px var(--ui);
   letter-spacing: 0.01em;
 }

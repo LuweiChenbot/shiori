@@ -2,7 +2,7 @@
 // from book files (large, only read when a book is opened).
 
 const DB_NAME = 'shiori';
-const VERSION = 1;
+const VERSION = 2;
 let dbPromise;
 
 function open() {
@@ -10,8 +10,11 @@ function open() {
     const req = indexedDB.open(DB_NAME, VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      db.createObjectStore('books', { keyPath: 'id' });
-      db.createObjectStore('files', { keyPath: 'id' });
+      for (const name of ['books', 'files']) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
+      }
+      // v2: readings worked out for each paragraph, so a page is annotated once.
+      if (!db.objectStoreNames.contains('readings')) db.createObjectStore('readings', { keyPath: 'key' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -45,6 +48,12 @@ export const db = {
     run(['books', 'files'], 'readwrite', (tx) => {
       tx.objectStore('books').put(book);
       tx.objectStore('files').put({ id: book.id, ...file });
+    }),
+  getReadings: (keys) =>
+    run(['readings'], 'readonly', (tx) => Promise.all(keys.map((k) => req(tx.objectStore('readings').get(k))))),
+  putReadings: (entries) =>
+    run(['readings'], 'readwrite', (tx) => {
+      entries.forEach((e) => tx.objectStore('readings').put(e));
     }),
   deleteBook: (id) =>
     run(['books', 'files'], 'readwrite', (tx) => {

@@ -32,7 +32,7 @@ export function openSettings() {
             <span class="label">深度思考</span>
             <div class="seg"><button type="button" data-think="off">關</button><button type="button" data-think="on">開</button></div>
           </div>
-          <small>開啟後，講解會先推理再回答，分析更細，但要多等約半分鐘。翻譯不受影響。</small>
+          <small>開啟後，講解會先推理再回答，分析更細，但要多等約半分鐘；注音也會在背景再校對一遍，同形異讀更準（費用較高）。翻譯不受影響。</small>
         </div>
 
         <div class="field row">
