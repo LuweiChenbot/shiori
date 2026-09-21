@@ -4,17 +4,20 @@
   --muted: #8B8479;
   --faint: #BDB5A8;
   --line: rgba(42, 39, 36, 0.1);
-  --card: #FFFDF8;
-  --sheet: #FBF8F1;
+  --raised: #FFFCF5; /* sheets, covers: a real step above --bg, not a shade of it */
   --chip: rgba(42, 39, 36, 0.06);
-  --on: #FFFDF8;
+  --on: #FFFFFF;
   --danger: #A8402F;
   --seal: #B23A2A;
   --hl: rgba(201, 160, 90, 0.3);
   --shadow-sheet: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 -8px 36px rgba(40, 28, 16, 0.16);
-  /* One curve for everything that moves: close to the iOS sheet spring. */
+  /* One curve and three durations for everything that moves (motion.js has the
+     same values for the page frames): fade appears or tints, travel crosses the
+     screen, sheet is for sheets and the cover-to-page morph. No overshoot. */
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
-  --shadow-cover: 0 1px 1px rgba(0, 0, 0, 0.05), 0 8px 20px rgba(70, 45, 20, 0.16);
+  --t-fade: 200ms;
+  --t-travel: 300ms;
+  --t-sheet: 500ms;
   --ui: -apple-system, BlinkMacSystemFont, "PingFang TC", "Heiti TC", "Noto Sans TC", "Helvetica Neue", sans-serif;
   --ja: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", var(--ui);
   --mincho: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif JP", "Songti TC", serif;
@@ -29,13 +32,11 @@
   --muted: #8A8A8E;
   --faint: #C7C7CC;
   --line: rgba(0, 0, 0, 0.08);
-  --card: #FFFFFF;
-  --sheet: #F9F9F9;
+  --raised: #F7F7F8;
   --chip: rgba(0, 0, 0, 0.05);
   --on: #FFFFFF;
   --hl: rgba(255, 204, 0, 0.28);
   --shadow-sheet: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 -8px 36px rgba(0, 0, 0, 0.14);
-  --shadow-cover: 0 1px 1px rgba(0, 0, 0, 0.05), 0 8px 20px rgba(0, 0, 0, 0.14);
 }
 
 :root[data-theme="night"] {
@@ -44,14 +45,12 @@
   --muted: #8A847B;
   --faint: #57534D;
   --line: rgba(255, 255, 255, 0.08);
-  --card: #211F1C;
-  --sheet: #1D1B19;
+  --raised: #201E1B;
   --chip: rgba(255, 255, 255, 0.07);
-  --on: #2B2926;
+  --on: #33302C;
   --danger: #E08A76;
   --seal: #C44A36;
   --shadow-sheet: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 -8px 36px rgba(0, 0, 0, 0.6);
-  --shadow-cover: 0 1px 1px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.45);
   color-scheme: dark;
 }
 
@@ -63,10 +62,8 @@ html, body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--ui);
-  -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
-  transition: background-color 0.25s;
 }
 
 body { overscroll-behavior: none; }
@@ -95,9 +92,13 @@ a { color: inherit; }
   place-items: center;
   border-radius: 50%;
   color: var(--fg);
-  transition: background-color 0.15s;
 }
-.icon-btn:active { background: var(--chip); }
+
+/* Feedback follows one rule: it appears the instant a finger lands and fades
+   out over --t-fade when it lifts. Hence the transition lives on the resting
+   state and is switched off while pressed. */
+.icon-btn, .action, .opt, .toc-list button, .chip { transition: background-color var(--t-fade) var(--ease); }
+.icon-btn:active, .action:active, .opt:active, .toc-list button:active { background: var(--chip); transition: none; }
 
 .btn {
   height: 46px;
@@ -112,9 +113,11 @@ a { color: inherit; }
 .btn.danger { background: var(--danger); color: #fff; }
 .btn.block { display: block; width: 100%; margin-top: 10px; }
 .btn.small { height: 34px; padding: 0 16px; font-size: 14px; }
-.btn:active { opacity: 0.75; }
+.btn { transition: opacity var(--t-fade) var(--ease); }
+.btn:active { opacity: 0.75; transition: none; }
 
-.link { color: var(--muted); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
+.link { color: var(--muted); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; transition: opacity var(--t-fade) var(--ease); }
+.link:active { opacity: 0.5; transition: none; }
 
 /* ------------------------------------------------------------------ library */
 
@@ -168,9 +171,8 @@ a { color: inherit; }
   display: flex;
   justify-content: space-between;
   margin: 0 0 16px;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.16em;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -194,7 +196,7 @@ a { color: inherit; }
   column-gap: 18px;
 }
 .rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 22px; }
-.current:active .cover, .row:active .cover { opacity: 0.8; }
+.current:active .cover, .row:active .cover { opacity: 0.8; transition-property: transform; }
 
 .cover {
   position: relative;
@@ -202,11 +204,15 @@ a { color: inherit; }
   aspect-ratio: 2 / 3;
   border-radius: 2px;
   overflow: hidden;
-  background: var(--card);
+  background: var(--raised);
   box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
   container-type: inline-size;
-  transition: opacity 0.15s;
+  transition: opacity var(--t-fade) var(--ease), transform var(--t-fade) var(--ease);
 }
+/* No haptics on iOS for web pages, so the press itself shows the long-press
+   coming: after a beat the cover slowly shrinks until the menu opens. */
+.pressing .cover { transform: scale(0.96); transition: transform 370ms linear 150ms; }
+.cover.blank { background: var(--chip); box-shadow: none; }
 .cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .cover.plain {
   display: flex;
@@ -269,6 +275,14 @@ a { color: inherit; }
 }
 .meta { margin-top: 12px; font-size: 12px; color: var(--muted); }
 .row .meta { margin-top: 10px; }
+
+/* A book being imported is a row of its own, with an indeterminate bar. */
+.row.pending { cursor: default; }
+.progress.indeterminate .bar i { width: 34%; animation: sweep 1.2s var(--ease) infinite; }
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.row.failed .book-author.fail { margin-top: 3px; color: var(--danger); white-space: normal; }
+.row.failed .dismiss { align-self: flex-start; margin-top: 8px; padding: 0; }
+.imports { margin-bottom: 30px; }
 
 .no-results { margin: 60px 0; text-align: center; font-size: 14px; color: var(--muted); }
 
@@ -346,10 +360,29 @@ a { color: inherit; }
 .rd-foot {
   display: flex;
   justify-content: space-between;
+  gap: 12px;
   padding: 2px 26px calc(var(--safe-b) + 12px);
   min-height: calc(var(--safe-b) + 30px);
   font-variant-numeric: tabular-nums;
 }
+.rd-status { flex: 1; min-width: 0; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* A problem opening the book or a chapter is shown where the page would be. */
+.rd-error {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 32px;
+  text-align: center;
+  background: var(--bg);
+}
+.rd-error-msg { margin: 0; max-width: 300px; font-size: 15px; line-height: 1.7; color: var(--muted); }
+.rd-error-actions { display: flex; gap: 10px; }
 
 .rd-page { position: relative; overflow: hidden; }
 @media (min-width: 820px) {
@@ -375,7 +408,7 @@ a { color: inherit; }
   background: var(--bg);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.25s var(--ease), transform 0.3s var(--ease);
+  transition: opacity var(--t-fade) var(--ease), transform var(--t-travel) var(--ease);
 }
 .rd-top {
   top: 0;
@@ -415,7 +448,8 @@ a { color: inherit; }
   position: absolute;
   left: 50%;
   bottom: calc(var(--safe-b) + 40px);
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(0.92);
+  transform-origin: 50% 100%;
   display: flex;
   align-items: stretch;
   padding: 4px;
@@ -424,9 +458,18 @@ a { color: inherit; }
   color: var(--bg);
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
   z-index: 6;
-  animation: pop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--t-fade) var(--ease), transform var(--t-fade) var(--ease), visibility 0s linear var(--t-fade);
 }
-.sel-bar[hidden] { display: none; }
+/* Tied to the selection: set by reader.js when there is room below it. */
+.sel-bar.anchored { left: var(--sx); top: var(--sy); bottom: auto; transform-origin: 50% 0; }
+.sel-bar.on {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) scale(1);
+  transition: opacity var(--t-fade) var(--ease), transform var(--t-fade) var(--ease);
+}
 .sel-bar button {
   padding: 10px 24px;
   border-radius: 999px;
@@ -436,10 +479,6 @@ a { color: inherit; }
 }
 .sel-bar button:active { background: rgba(127, 127, 127, 0.25); }
 .sel-bar .sep { width: 1px; margin: 10px 0; background: currentColor; opacity: 0.2; }
-@keyframes pop {
-  from { opacity: 0; transform: translate(-50%, 8px) scale(0.96); }
-  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
-}
 
 /* ------------------------------------------------------------------ sheets */
 
@@ -461,17 +500,15 @@ a { color: inherit; }
   max-height: calc(100dvh - var(--safe-t) - 24px);
   display: flex;
   flex-direction: column;
-  background: var(--sheet);
+  background: var(--raised);
   border-radius: 16px 16px 0 0;
   box-shadow: var(--shadow-sheet);
   transform: translateY(105%);
-  transition: transform 0.5s var(--ease), height 0.5s var(--ease);
+  transition: transform var(--t-sheet) var(--ease), height var(--t-sheet) var(--ease);
   z-index: 41;
   padding-bottom: var(--safe-b);
-  will-change: transform;
 }
 .sheet.open { transform: none; }
-.sheet.closing { transition-duration: 0.36s; }
 .sheet-grip {
   flex: none;
   height: 22px;
@@ -495,7 +532,7 @@ a { color: inherit; }
   border-radius: 8px;
   font-size: 14px;
   color: var(--muted);
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color var(--t-fade) var(--ease), color var(--t-fade) var(--ease);
 }
 .seg button.on { background: var(--on); color: var(--fg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
 
@@ -579,7 +616,7 @@ a { color: inherit; }
 .md li.d2 { margin-left: 2.2em; }
 .md li.d3 { margin-left: 3.3em; }
 .md strong { font-weight: 600; }
-.md em { font-style: normal; background: linear-gradient(transparent 62%, var(--hl) 62%); }
+.md em { font-style: normal; background: var(--hl); border-radius: 3px; padding: 0 2px; }
 .md code { font-family: var(--ja); font-size: 0.95em; padding: 1px 5px; border-radius: 5px; background: var(--chip); }
 .md blockquote { margin: 8px 0; padding-left: 12px; border-left: 2px solid var(--line); color: var(--muted); }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
@@ -647,6 +684,7 @@ a { color: inherit; }
   font-family: var(--mincho);
 }
 .aa-size { font-size: 16px; font-variant-numeric: tabular-nums; }
+.aa-note { margin: -4px 0 8px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 .themes { justify-content: center; gap: 22px; }
 .swatch {
   width: 50px;
@@ -672,14 +710,15 @@ a { color: inherit; }
   padding: 0 14px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--card);
+  background: var(--bg);
   font-size: 16px;
   outline: none;
 }
 .field input:focus { border-color: var(--muted); }
 .field small { display: block; margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 .key-row { display: flex; align-items: center; gap: 10px; }
-.key-row input { font-family: ui-monospace, Menlo, monospace; font-size: 14px; }
+/* 16px: iOS zooms into any input set smaller, and pinch zoom is now allowed. */
+.key-row input { font-family: ui-monospace, Menlo, monospace; font-size: 16px; }
 .key-row .link { flex: none; white-space: nowrap; }
 .options { display: flex; flex-direction: column; }
 .opt {
@@ -708,26 +747,6 @@ a { color: inherit; }
 .confirm-title { font-size: 16px; font-weight: 600; margin: 4px 0 6px; }
 .confirm-msg { font-size: 14px; color: var(--muted); margin: 0 0 12px; }
 
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: calc(var(--safe-b) + 70px);
-  transform: translate(-50%, 10px);
-  max-width: calc(100vw - 40px);
-  padding: 10px 18px;
-  border-radius: 999px;
-  background: var(--fg);
-  color: var(--bg);
-  font-size: 14px;
-  line-height: 1.5;
-  text-align: center;
-  opacity: 0;
-  transition: opacity 0.2s, transform 0.2s;
-  z-index: 60;
-  pointer-events: none;
-}
-.toast.show { opacity: 1; transform: translate(-50%, 0); }
-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
@@ -737,17 +756,17 @@ a { color: inherit; }
 /* Opening a book grows its cover into the page; closing shrinks it back. */
 .reader { view-transition-name: book; }
 ::view-transition-group(book) {
-  animation-duration: 0.5s;
+  animation-duration: var(--t-sheet);
   animation-timing-function: var(--ease);
 }
 ::view-transition-old(book),
 ::view-transition-new(book) {
   height: 100%;
   object-fit: cover;
-  animation-duration: 0.5s;
+  animation-duration: var(--t-sheet);
   animation-timing-function: var(--ease);
 }
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 0.3s;
+  animation-duration: var(--t-fade);
 }

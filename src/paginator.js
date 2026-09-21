@@ -1,29 +1,26 @@
-// Paginated rendering of one chapter at a time.
+// Paginated rendering, one chapter at a time.
 //
-// The chapter document is loaded into an iframe (book scripts are stripped and
-// blocked by CSP) and laid out with CSS columns, one column per page. Turning a page
-// translates <body> sideways by the page width. Book styles are kept, but
-// writing mode, fonts, colours and margins are overridden so every book reads
-// the same way: horizontal text, the reader's own typography.
+// A chapter is loaded into its own iframe (book scripts are stripped and
+// blocked by CSP) and laid out with CSS columns, one column per page. Turning a
+// page translates <body> sideways by the page width, tracking the finger.
+// Changing chapter slides the whole frame: the next chapter loads into a second
+// frame that waits off-screen, and both move at once, exactly like a page turn.
+//
+// Book styles are kept, but writing mode, fonts, colours and margins are
+// overridden so every book reads the same way: horizontal text, the reader's
+// own typography. Everything that changes with settings is a CSS variable on
+// <html> (--rd-*), so changing the font size or the theme is a handful of
+// property writes rather than a new stylesheet, and colours never cause a reflow.
 
 import { THEMES, FONTS } from './theme.js';
 import { selectionPayload } from './textsel.js';
+import { EASE, DUR } from './motion.js';
 
 const XHTML_NS = 'http://www.w3.org/1999/xhtml';
 const XML_NS = 'http://www.w3.org/XML/1998/namespace';
 const PAD_Y = 14;
-const SHIFT = 36; // px a chapter slides while handing over to the next
-const EASE_OUT = 'cubic-bezier(0.22, 0.61, 0.36, 1)';
-const EASE_IN = 'cubic-bezier(0.4, 0, 1, 1)';
 
-function readerCss(cfg, W, H) {
-  const t = THEMES[cfg.theme] || THEMES.paper;
-  const font = (FONTS[cfg.font] || FONTS.mincho).css;
-  const m = cfg.margin;
-  const furigana = cfg.furigana || 'off';
-  // Readings sit in the space between lines, so leave room for them.
-  const lineHeight = furigana === 'off' ? cfg.lineHeight : Math.max(cfg.lineHeight, 2.05);
-  return `
+const READER_CSS = `
 html, body, body * {
   writing-mode: horizontal-tb !important;
   -webkit-writing-mode: horizontal-tb !important;
@@ -31,37 +28,36 @@ html, body, body * {
 }
 html {
   margin: 0 !important; padding: 0 !important;
-  width: ${W}px !important; height: ${H}px !important; min-height: 0 !important;
+  width: var(--rd-W) !important; height: var(--rd-H) !important; min-height: 0 !important;
   overflow: hidden !important;
-  background: ${t.bg} !important;
-  font-size: ${cfg.fontSize}px !important;
+  background: var(--rd-bg) !important;
+  font-size: var(--rd-fs) !important;
   -webkit-text-size-adjust: 100% !important; text-size-adjust: 100% !important;
   touch-action: manipulation;
 }
 body {
   margin: 0 !important;
-  padding: ${PAD_Y}px ${m}px !important;
+  padding: ${PAD_Y}px var(--rd-m) !important;
   box-sizing: border-box !important;
-  width: ${W}px !important; height: ${H}px !important;
+  width: var(--rd-W) !important; height: var(--rd-H) !important;
   min-height: 0 !important; max-width: none !important; max-height: none !important;
   overflow: visible !important;
-  column-width: ${W - 2 * m}px !important;
-  column-gap: ${2 * m}px !important;
+  column-width: calc(var(--rd-W) - 2 * var(--rd-m)) !important;
+  column-gap: calc(2 * var(--rd-m)) !important;
   column-fill: auto !important;
   background: transparent !important;
-  color: ${t.fg} !important;
-  font-family: ${font} !important;
-  line-height: ${lineHeight} !important;
+  color: var(--rd-fg) !important;
+  font-family: var(--rd-font) !important;
+  line-height: var(--rd-lh) !important;
   text-align: justify;
   line-break: strict;
   font-kerning: normal;
-  -webkit-font-smoothing: antialiased;
 }
 body * {
   font-family: inherit !important;
   color: inherit !important;
   background-color: transparent !important;
-  border-color: ${t.muted} !important;
+  border-color: var(--rd-muted) !important;
   max-width: 100% !important;
 }
 p { orphans: 2; widows: 2; }
@@ -75,16 +71,16 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.5 !important; break-after: avoid; letter
 ruby rt { font-size: .5em; line-height: 1; opacity: .8; }
 img, svg, video {
   max-width: 100% !important;
-  max-height: ${H - 2 * PAD_Y}px !important;
+  max-height: calc(var(--rd-H) - ${2 * PAD_Y}px) !important;
   object-fit: contain;
   break-inside: avoid;
   -webkit-touch-callout: none;
 }
 svg { height: auto; }
 div:has(> svg:only-child), div:has(> img:only-child) { text-align: center; break-inside: avoid; }
-a, a * { text-decoration-color: ${t.muted} !important; }
-::selection { background: ${t.sel}; }
-::highlight(shiori-focus) { background-color: ${t.hl}; }
+a, a * { text-decoration-color: var(--rd-muted) !important; }
+::selection { background: var(--rd-sel); }
+::highlight(shiori-focus) { background-color: var(--rd-hl); }
 #shiori-end { display: inline-block; width: 1px; height: 1px; }
 /* Context-aware furigana (furigana.js): drawn above the kanji, outside the text flow. */
 .fg { position: relative; }
@@ -98,17 +94,42 @@ a, a * { text-decoration-color: ${t.muted} !important; }
   line-height: 1;
   letter-spacing: 0;
   white-space: nowrap;
-  color: ${t.muted};
+  color: var(--rd-muted);
   pointer-events: none;
   -webkit-user-select: none;
   user-select: none;
-  animation: fg-in .3s ease-out;
+  animation: fg-in ${DUR.fade}ms ${EASE};
 }
 @keyframes fg-in { from { opacity: 0; } }
-${furigana === 'off' ? '.fg::before { display: none; }' : ''}
-${furigana === 'hard' ? '.fg:not(.hard)::before { display: none; }' : ''}
+html[data-furigana="off"] .fg::before { display: none; }
+html[data-furigana="hard"] .fg:not(.hard)::before { display: none; }
 `;
+
+/** Line height in use: readings sit between the lines, so leave room for them. */
+export const lineHeightFor = (cfg) => ((cfg.furigana || 'off') === 'off' ? cfg.lineHeight : Math.max(cfg.lineHeight, 2.05));
+
+/** Write the reader's settings onto <html> as variables. */
+function setVars(html, cfg, W, H) {
+  const t = THEMES[cfg.theme] || THEMES.paper;
+  const s = html.style;
+  s.setProperty('--rd-W', `${W}px`);
+  s.setProperty('--rd-H', `${H}px`);
+  s.setProperty('--rd-m', `${cfg.margin}px`);
+  s.setProperty('--rd-fs', `${cfg.fontSize}px`);
+  s.setProperty('--rd-lh', String(lineHeightFor(cfg)));
+  s.setProperty('--rd-font', (FONTS[cfg.font] || FONTS.mincho).css);
+  s.setProperty('--rd-bg', t.bg);
+  s.setProperty('--rd-fg', t.fg);
+  s.setProperty('--rd-muted', t.muted);
+  s.setProperty('--rd-sel', t.sel);
+  s.setProperty('--rd-hl', t.hl);
+  html.setAttribute('data-furigana', cfg.furigana || 'off');
 }
+
+const forget = (frame) => {
+  if (frame?._url) URL.revokeObjectURL(frame._url);
+  frame?.remove();
+};
 
 export class Paginator {
   constructor(host, handlers) {
@@ -116,51 +137,58 @@ export class Paginator {
     this.h = handlers;
     this.page = 0;
     this.pages = 1;
-    this.url = null;
+    this.iframe = null;
     this.ready = false;
-    this.iframe = document.createElement('iframe');
-    this.iframe.className = 'page-frame';
-    // WebKit only delivers our own event listeners to frames that allow scripts;
-    // book scripts are still stripped and blocked by the frame's CSP.
-    this.iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
-    this.iframe.setAttribute('scrolling', 'no');
-    this.iframe.setAttribute('title', '正文');
-    host.appendChild(this.iframe);
-
+    this.dead = false;
+    this.fixedW = null;
     this.touch = null;
     this.lastTouchEnd = 0;
     this.resizeTimer = 0;
     this.ro = new ResizeObserver(() => {
       clearTimeout(this.resizeTimer);
-      this.resizeTimer = setTimeout(() => this.relayout(), 120);
+      this.resizeTimer = setTimeout(() => this.applyConfig(this.cfg), 120);
     });
     this.ro.observe(host);
   }
 
   get doc() {
-    return this.iframe.contentDocument;
+    return this.iframe?.contentDocument;
   }
 
   get win() {
-    return this.iframe.contentWindow;
+    return this.iframe?.contentWindow;
   }
 
   size() {
     return { W: Math.round(this.host.clientWidth), H: Math.round(this.host.clientHeight) };
   }
 
+  makeFrame() {
+    const frame = document.createElement('iframe');
+    frame.className = 'page-frame';
+    // WebKit only delivers our own event listeners to frames that allow scripts;
+    // book scripts are still stripped and blocked by the frame's CSP.
+    frame.setAttribute('sandbox', 'allow-same-origin allow-scripts');
+    frame.setAttribute('scrolling', 'no');
+    frame.setAttribute('title', '正文');
+    frame.style.visibility = 'hidden';
+    return frame;
+  }
+
   /**
-   * Load a chapter. `at` is 'start' | 'end' | { fraction } | { fragment }.
-   * `dir` (1 forward, -1 back) slides the old chapter out and the new one in.
+   * Show a chapter. `at` is 'start' | 'end' | { fraction } | { fragment }.
+   * `dir` (1 forward, -1 back) slides the chapter in; without it the chapter
+   * replaces the old one in a single frame.
    */
   async open({ doc, xml }, cfg, at = 'start', dir = 0) {
-    const frame = this.iframe;
-    const handOff = dir && this.ready;
-    this.cfg = cfg;
+    const old = this.ready ? this.iframe : null;
     this.ready = false;
+    this.cfg = cfg;
+    this.touch = null;
     const { W, H } = this.size();
     this.W = W;
     this.H = H;
+    if (old) this.settle(old);
 
     const head = doc.head || doc.documentElement.insertBefore(doc.createElementNS(XHTML_NS, 'head'), doc.body);
     head.querySelectorAll('meta[name="viewport"]').forEach((m) => m.remove());
@@ -170,9 +198,10 @@ export class Paginator {
     head.insertBefore(csp, head.firstChild);
     const style = doc.createElementNS(XHTML_NS, 'style');
     style.setAttribute('id', 'shiori-style');
-    style.textContent = readerCss(cfg, W, H);
+    style.textContent = READER_CSS;
     head.appendChild(style);
     const html = doc.documentElement;
+    setVars(html, cfg, W, H);
     if (!html.getAttribute('lang') && !html.getAttributeNS(XML_NS, 'lang')) html.setAttribute('lang', 'ja');
     const end = doc.createElementNS(XHTML_NS, 'span');
     end.setAttribute('id', 'shiori-end');
@@ -180,44 +209,79 @@ export class Paginator {
 
     const source = xml ? new XMLSerializer().serializeToString(doc) : `<!DOCTYPE html>\n${html.outerHTML}`;
     const url = URL.createObjectURL(new Blob([source], { type: xml ? 'application/xhtml+xml' : 'text/html' }));
-    if (handOff) {
-      frame.style.transition = `transform 150ms ${EASE_IN}, opacity 150ms linear`;
-      frame.style.transform = `translate3d(${-dir * SHIFT}px, 0, 0)`;
-      frame.style.opacity = '0';
-      await new Promise((r) => setTimeout(r, 150));
-    } else {
-      frame.style.transition = 'none';
-      frame.style.opacity = '0';
-    }
+
+    // The next chapter loads out of sight while the current one stays on screen.
+    const frame = this.makeFrame();
+    frame._url = url;
+    this.host.appendChild(frame);
     await new Promise((resolve) => {
       frame.onload = resolve;
-      // replace(), not src=: each chapter would otherwise add a history entry,
-      // and going back would step through old chapters instead of leaving the book.
-      if (frame.contentWindow) frame.contentWindow.location.replace(url);
-      else frame.src = url;
+      frame.src = url;
     });
-    if (this.url) URL.revokeObjectURL(this.url);
-    this.url = url;
+    if (this.dead) {
+      forget(frame);
+      return;
+    }
 
+    this.iframe = frame;
     this.attach();
+    this.fixedW = null;
     this.fixLayout();
     this.measure();
     this.ready = true;
     this.position(at);
-    frame.style.transition = 'none';
-    frame.style.transform = dir ? `translate3d(${dir * SHIFT}px, 0, 0)` : '';
-    frame.getBoundingClientRect();
-    requestAnimationFrame(() => {
-      frame.style.transition = dir ? `transform 320ms ${EASE_OUT}, opacity 240ms linear` : 'opacity 200ms linear';
-      frame.style.transform = '';
-      frame.style.opacity = '';
-    });
+    this.reveal(frame, old, dir);
 
     // Late layout changes: web fonts and images.
     this.doc.fonts?.ready.then(() => this.remeasure());
     this.doc.querySelectorAll('img').forEach((img) => {
       if (!img.complete) img.addEventListener('load', () => this.remeasure(), { once: true });
     });
+  }
+
+  /** Put the outgoing page's body back on its page (it may be mid rubber-band). */
+  settle(frame) {
+    const body = frame.contentDocument?.body;
+    if (!body) return;
+    body.style.transition = `transform ${DUR.travel}ms ${EASE}`;
+    body.style.transform = `translate3d(${-this.page * this.W}px, 0, 0)`;
+  }
+
+  /** Bring `frame` on screen; `old` (if any) leaves the way `dir` says. */
+  reveal(frame, old, dir) {
+    const W = this.W;
+    if (!old) {
+      // First chapter: the morph from the cover has already brought the page up.
+      frame.style.opacity = '0';
+      frame.style.visibility = 'visible';
+      frame.getBoundingClientRect();
+      frame.style.transition = `opacity ${DUR.fade}ms ${EASE}`;
+      frame.style.opacity = '1';
+      setTimeout(() => {
+        frame.style.transition = '';
+        frame.style.opacity = '';
+      }, DUR.fade + 30);
+      return;
+    }
+    if (!dir) {
+      frame.style.visibility = 'visible';
+      forget(old);
+      return;
+    }
+    frame.style.transition = 'none';
+    frame.style.transform = `translate3d(${dir * W}px, 0, 0)`;
+    frame.style.visibility = 'visible';
+    frame.getBoundingClientRect();
+    const move = `transform ${DUR.travel}ms ${EASE}`;
+    old.style.transition = move;
+    frame.style.transition = move;
+    old.style.transform = `translate3d(${-dir * W}px, 0, 0)`;
+    frame.style.transform = 'translate3d(0, 0, 0)';
+    setTimeout(() => {
+      frame.style.transition = '';
+      frame.style.transform = '';
+      forget(old);
+    }, DUR.travel + 40);
   }
 
   position(at) {
@@ -254,6 +318,22 @@ export class Paginator {
 
   payload() {
     return selectionPayload(this.win);
+  }
+
+  /**
+   * Where the selection is, in the coordinates of the page area's parent:
+   * { first, last } are the first and last lines' rectangles, { box } their union.
+   */
+  selectionRect() {
+    const sel = this.win?.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+    const range = sel.getRangeAt(0);
+    const lines = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+    if (!lines.length) return null;
+    const at = this.host.getBoundingClientRect();
+    const move = (r) => ({ left: r.left + at.left, right: r.right + at.left, top: r.top + at.top, bottom: r.bottom + at.top });
+    const box = range.getBoundingClientRect();
+    return { first: move(lines[0]), last: move(lines.at(-1)), box: move(box) };
   }
 
   // Tap zones: left 30% back, right 30% forward, middle toggles the chrome.
@@ -362,11 +442,15 @@ export class Paginator {
    * Adapt layouts made for wide screens: blocks pushed aside by margins wider
    * than a phone column (e.g. a centred ○ section mark set with margin-left:
    * 20em) get centred instead; pages holding a single image are centred.
+   * The outcome depends on the column width, so it is worked out once per
+   * chapter and again only when that width changes.
    */
   fixLayout() {
+    const column = this.W - 2 * this.cfg.margin;
+    if (this.fixedW === column) return;
+    this.fixedW = column;
     const d = this.doc;
     const w = this.win;
-    const column = this.W - 2 * this.cfg.margin;
     for (const el of d.body.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6, blockquote, section, li')) {
       const cs = w.getComputedStyle(el);
       const side = ['marginLeft', 'marginRight', 'paddingLeft', 'paddingRight'].reduce((a, k) => a + (parseFloat(cs[k]) || 0), 0);
@@ -393,8 +477,14 @@ export class Paginator {
     this.pages = Math.max(1, pages || 1);
   }
 
+  /** Page index of the first text currently visible (survives a relayout). */
+  anchor(margin) {
+    return this.doc.caretRangeFromPoint?.(margin + 2, PAD_Y + 4);
+  }
+
+  /** Re-measure after the page's own size changed: late fonts and images. */
   remeasure() {
-    this.relayout(this.cfg);
+    this.applyConfig(this.cfg, true);
   }
 
   pageOf(node) {
@@ -405,17 +495,27 @@ export class Paginator {
     return Math.max(0, Math.min(this.pages - 1, Math.floor((rect.left + shift + 1) / this.W)));
   }
 
-  relayout(cfg = this.cfg) {
+  /**
+   * Apply reader settings. Only what changes the text's size or shape
+   * (font, size, line height, margins, the frame's own size) makes the page
+   * reflow; colours and the furigana display mode are written and left alone.
+   */
+  applyConfig(cfg, force = false) {
+    const prev = this.cfg;
+    this.cfg = cfg;
     if (!this.ready || !this.doc?.body) return;
     const { W, H } = this.size();
     if (!W || !H) return;
-    // Keep the first visible character on screen across font or size changes.
+    const layout = force || !prev || W !== this.W || H !== this.H
+      || prev.fontSize !== cfg.fontSize || prev.margin !== cfg.margin || prev.font !== cfg.font
+      || lineHeightFor(prev) !== lineHeightFor(cfg);
+    // Keep the first visible character on screen: find it before anything moves.
     const fraction = this.page / this.pages;
-    const anchor = this.doc.caretRangeFromPoint?.(this.cfg.margin + 2, PAD_Y + 4);
-    this.cfg = cfg;
+    const anchor = layout ? this.anchor(prev?.margin ?? cfg.margin) : null;
     this.W = W;
     this.H = H;
-    this.doc.getElementById('shiori-style').textContent = readerCss(cfg, W, H);
+    setVars(this.doc.documentElement, cfg, W, H);
+    if (!layout) return;
     this.fixLayout();
     this.measure();
     // measure() leaves body untransformed, so rects are in page-0 coordinates.
@@ -429,7 +529,7 @@ export class Paginator {
     const body = this.doc?.body;
     if (!body) return;
     this.page = Math.max(0, Math.min(this.pages - 1, p));
-    body.style.transition = animate ? `transform 300ms ${EASE_OUT}` : 'none';
+    body.style.transition = animate ? `transform ${DUR.travel}ms ${EASE}` : 'none';
     body.style.transform = `translate3d(${-this.page * this.W}px, 0, 0)`;
     this.h.onPage?.(this.page, this.pages);
   }
@@ -459,10 +559,10 @@ export class Paginator {
   }
 
   destroy() {
+    this.dead = true;
     this.ro.disconnect();
     clearTimeout(this.resizeTimer);
     clearTimeout(this.selTimer);
-    if (this.url) URL.revokeObjectURL(this.url);
-    this.iframe.remove();
+    this.host.querySelectorAll('.page-frame').forEach((f) => forget(f));
   }
 }

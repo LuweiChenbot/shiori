@@ -83,7 +83,13 @@ function plainLength(html) {
 
 export class EpubBook {
   static async open(data) {
-    const book = new EpubBook(await JSZip.loadAsync(data));
+    let zip;
+    try {
+      zip = await JSZip.loadAsync(data);
+    } catch {
+      throw new Error('這個檔案不是有效的 EPUB，可能已損毀，或受 DRM 保護');
+    }
+    const book = new EpubBook(zip);
     await book.init();
     return book;
   }

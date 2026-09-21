@@ -1,4 +1,6 @@
-// Small UI building blocks: element helper, icons, bottom sheets, toasts.
+// Small UI building blocks: element helper, icons, bottom sheets.
+
+import { DUR } from './motion.js';
 
 export function el(html) {
   const t = document.createElement('template');
@@ -59,12 +61,11 @@ export function openSheet({ html, className = '', expandable = false, onClose })
     openSheets--;
     sheet.style.transition = '';
     sheet.style.transform = '';
-    sheet.classList.add('closing');
     sheet.classList.remove('open');
     setTimeout(() => {
       sheet.remove();
       backdrop.remove();
-    }, 380);
+    }, DUR.sheet + 40);
     document.removeEventListener('keydown', onKey);
     onClose?.();
   };
@@ -140,17 +141,6 @@ export function openSheet({ html, className = '', expandable = false, onClose })
   if (expandable) grip.addEventListener('click', () => sheet.classList.toggle('tall'));
 
   return { sheet, body: sheet.querySelector('.sheet-body'), close };
-}
-
-export function toast(message, ms = 2200) {
-  document.querySelector('.toast')?.remove();
-  const t = el(`<div class="toast" role="status">${esc(message)}</div>`);
-  document.body.appendChild(t);
-  requestAnimationFrame(() => t.classList.add('show'));
-  setTimeout(() => {
-    t.classList.remove('show');
-    setTimeout(() => t.remove(), 300);
-  }, ms);
 }
 
 export function confirmSheet({ title, message = '', action, destructive = false }) {

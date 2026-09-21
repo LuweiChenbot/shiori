@@ -20,7 +20,6 @@ import { db } from './db.js';
 import { activeModel, settings } from './settings.js';
 import { completeJSON } from './llm.js';
 import { indexBlock, rawOffset } from './textsel.js';
-import { toast } from './ui.js';
 
 const XHTML_NS = 'http://www.w3.org/1999/xhtml';
 const BLOCKS = 'p, li, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, td, th, figcaption';
@@ -96,19 +95,36 @@ function hash(text) {
 const blockText = (block) => indexBlock(block).text;
 
 export class Furigana {
-  constructor(pag) {
+  /** `onStatus(text | null)` reports a problem in place (the reader's footer). */
+  constructor(pag, { onStatus } = {}) {
     this.pag = pag;
+    this.status = onStatus || (() => {});
+    this.sig = this.signature();
     this.memory = new Map(); // key -> { words, verified }, for this session
     this.inflight = new Set(); // keys being worked out
     this.checking = new Set(); // keys being re-checked
     this.checks = Promise.resolve(); // re-checks run one at a time
     this.failures = 0;
-    this.warned = false;
     this.timer = 0;
   }
 
   get mode() {
     return settings.get().reader.furigana || 'off';
+  }
+
+  signature() {
+    const a = activeModel();
+    return `${this.mode}|${!!settings.get().deepThink}|${a.provider}|${a.model}|${!!a.apiKey}`;
+  }
+
+  /** Call when any setting changes; only acts if something furigana depends on did. */
+  settingsChanged() {
+    const sig = this.signature();
+    if (sig === this.sig) return;
+    this.sig = sig;
+    this.failures = 0;
+    this.status(null);
+    this.schedule();
   }
 
   /** Call after every chapter load and page turn. */
@@ -199,8 +215,7 @@ export class Furigana {
   async fetch(group, careful = false) {
     const active = activeModel();
     if (!active.apiKey) {
-      if (!this.warned) toast('注音需要先在「設定」填入 API Key');
-      this.warned = true;
+      this.status('注音需要先設定 API Key');
       return;
     }
     if (!careful) group.forEach((it) => this.inflight.add(it.key));
@@ -239,14 +254,17 @@ export class Furigana {
         }
       }
       if (fresh.length) db.putReadings(fresh).catch(() => {});
-      if (!careful) this.failures = 0;
+      if (!careful) {
+        this.failures = 0;
+        this.status(null);
+      }
     } catch (err) {
       if (careful) {
         console.warn('furigana re-check failed', err);
         return;
       }
       this.failures++;
-      if (this.failures >= 3) toast('注音暫時無法取得，稍後再試');
+      if (this.failures >= 3) this.status('注音暫時無法取得');
       console.warn('furigana request failed', err);
     } finally {
       if (!careful) group.forEach((it) => this.inflight.delete(it.key));

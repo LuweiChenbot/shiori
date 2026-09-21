@@ -5,7 +5,7 @@
 
 import { db, requestPersistence } from './db.js';
 import { importFile } from './book.js';
-import { el, esc, icon, toast, openSheet, confirmSheet } from './ui.js';
+import { el, esc, icon, openSheet, confirmSheet } from './ui.js';
 import { openSettings } from './settings-view.js';
 
 const SAMPLE = { url: './samples/ame-no-toshokan.epub', name: 'ame-no-toshokan.epub', title: '雨の図書館' };
@@ -36,6 +36,8 @@ function progressHtml(book) {
 export async function showLibrary(root, { openBook }) {
   const urls = [];
   let books = [];
+  let imports = []; // books being imported, shown as rows in the list itself
+  let importSeq = 0;
   let mode = 'library';
   let query = '';
   const scrollY = { library: 0, search: 0 };
@@ -68,15 +70,19 @@ export async function showLibrary(root, { openBook }) {
     requestPersistence();
     let last = null;
     for (const file of files) {
-      toast(`正在匯入「${file.name}」…`, 1500);
+      const item = { key: ++importSeq, name: file.name, state: 'working', message: '' };
+      imports.push(item);
+      render();
       try {
         last = await importFile(file);
+        imports = imports.filter((i) => i !== item);
       } catch (err) {
         console.error(err);
-        toast(err.message || `無法匯入「${file.name}」`, 3500);
+        item.state = 'error';
+        item.message = err.message || '無法匯入這個檔案';
       }
+      await refresh();
     }
-    await refresh();
     return last;
   }
 
@@ -122,9 +128,17 @@ export async function showLibrary(root, { openBook }) {
   });
 
   async function openSample() {
-    const res = await fetch(SAMPLE.url);
-    const blob = await res.blob();
-    const book = await importFiles([new File([blob], SAMPLE.name, { type: 'application/epub+zip' })]);
+    let file;
+    try {
+      const res = await fetch(SAMPLE.url);
+      if (!res.ok) throw new Error(String(res.status));
+      file = new File([await res.blob()], SAMPLE.name, { type: 'application/epub+zip' });
+    } catch {
+      imports.push({ key: ++importSeq, name: SAMPLE.title, state: 'error', message: '無法載入範例，請檢查網路' });
+      render();
+      return;
+    }
+    const book = await importFiles([file]);
     if (book) openBook(book.id);
   }
 
@@ -159,6 +173,21 @@ export async function showLibrary(root, { openBook }) {
     </section>`;
   }
 
+  function importsHtml() {
+    if (!imports.length) return '';
+    return `<ul class="rows imports">${imports.map((it) => `
+      <li><div class="row pending${it.state === 'error' ? ' failed' : ''}">
+        <span class="cover sm blank"></span>
+        <span class="info">
+          <span class="book-title" lang="ja">${esc(it.name)}</span>
+          ${it.state === 'error'
+            ? `<span class="book-author fail">${esc(it.message)}</span>
+               <button class="link dismiss" data-dismiss="${it.key}">關閉</button>`
+            : '<span class="progress indeterminate"><span class="bar"><i></i></span></span>'}
+        </span>
+      </div></li>`).join('')}</ul>`;
+  }
+
   function rowsHtml(books) {
     return `<ul class="rows">${books.map((book) => `
       <li><button class="row" data-id="${book.id}">
@@ -171,6 +200,13 @@ export async function showLibrary(root, { openBook }) {
       </button></li>`).join('')}</ul>`;
   }
 
+  main.addEventListener('click', (e) => {
+    const key = e.target.closest('[data-dismiss]')?.dataset.dismiss;
+    if (!key) return;
+    imports = imports.filter((i) => String(i.key) !== key);
+    render();
+  });
+
   async function refresh() {
     books = (await db.allBooks()).sort((a, b) => b.addedAt - a.addedAt);
     render();
@@ -179,6 +215,10 @@ export async function showLibrary(root, { openBook }) {
   function render() {
     urls.splice(0).forEach((u) => URL.revokeObjectURL(u));
 
+    if (!books.length && imports.length) {
+      main.innerHTML = importsHtml();
+      return;
+    }
     if (!books.length) {
       main.innerHTML = `<div class="empty">
         <p class="empty-title">書庫是空的</p>
@@ -201,12 +241,13 @@ export async function showLibrary(root, { openBook }) {
             ${rowsHtml(hits)}
           </section>`
         : '<p class="no-results">找不到符合的書</p>';
+      main.innerHTML = importsHtml() + main.innerHTML;
     } else {
       // "Continue reading" is the book opened last; the list below is the whole
       // library in the order books were added, so it never reshuffles.
       const opened = books.filter((b) => b.openedAt).sort((a, b) => b.openedAt - a.openedAt);
       const current = opened[0] || books[0];
-      main.innerHTML = `${currentHtml(current)}
+      main.innerHTML = `${importsHtml()}${currentHtml(current)}
         <section class="section">
           <h2 class="section-label"><span>全部書籍</span><span>${books.length}</span></h2>
           ${rowsHtml(books)}
@@ -294,19 +335,26 @@ function bindPress(node, onTap, onLong) {
   let timer = 0;
   let fired = false;
   let start = null;
+  const release = () => {
+    clearTimeout(timer);
+    node.classList.remove('pressing');
+  };
+  // iOS Safari has no haptics for web pages, so the cover slowly shrinks while
+  // the press is held (see .pressing in styles.css): the menu is anticipated
+  // rather than sudden.
   node.addEventListener('pointerdown', (e) => {
     fired = false;
     start = { x: e.clientX, y: e.clientY };
+    node.classList.add('pressing');
     timer = setTimeout(() => {
       fired = true;
-      navigator.vibrate?.(10);
       onLong();
     }, 520);
   });
   node.addEventListener('pointermove', (e) => {
-    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) clearTimeout(timer);
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) release();
   });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => node.addEventListener(t, () => clearTimeout(timer)));
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => node.addEventListener(t, release));
   node.addEventListener('click', (e) => {
     if (fired) {
       e.preventDefault();
@@ -316,7 +364,7 @@ function bindPress(node, onTap, onLong) {
   });
   node.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    clearTimeout(timer);
+    release();
     if (!fired) onLong();
     fired = true;
   });

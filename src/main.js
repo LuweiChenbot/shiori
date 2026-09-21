@@ -3,7 +3,6 @@ import { settings } from './settings.js';
 import { applyTheme } from './theme.js';
 import { showLibrary } from './library.js';
 import { openReader } from './reader.js';
-import { toast } from './ui.js';
 
 const app = document.getElementById('app');
 let view = null;
@@ -32,7 +31,6 @@ async function swap() {
       : await showLibrary(app, { openBook });
   } catch (err) {
     console.error(err);
-    toast(err.message || '開啟失敗', 3500);
     if (m) location.replace('#/');
   }
   if (!m) fromLibrary = false;
@@ -45,7 +43,12 @@ function route() {
   pending = pending.then(() => {
     const animate = view && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (!animate) return swap();
-    return document.startViewTransition(swap).finished.catch(() => {});
+    // A skipped transition (hidden tab, or another one starting) rejects these
+    // promises; the screen change itself still happens.
+    const t = document.startViewTransition(swap);
+    t.ready.catch(() => {});
+    t.updateCallbackDone.catch(() => {});
+    return t.finished.catch(() => {});
   });
 }
 
