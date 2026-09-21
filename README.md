@@ -23,7 +23,7 @@ On an iPhone on the same Wi-Fi, open `http://<your-Mac-IP>:5173`.
 - **Studying:** long-press to select text, then tap **講解** or **翻譯**. Explanations always use the same five sections in the same order: 譯文, 詞語, 句法, 句子結構, 語氣語感. In the sheet you can widen the scope to **整句** (the full sentence) or **整段** (the paragraph) and type follow-up questions.
 - **Furigana (Aa → 注音):** 關, 難詞 (N2 and above) or 全部. Readings are worked out by the model from the whole paragraph, so heteronyms (今日, 行った, 方, 一日, 人気, 目下…) get the reading they have in that sentence. Each paragraph is annotated once and cached; the next page is prepared while you read. With 深度思考 on, the page you are reading is re-checked with reasoning in the background and corrected in place. The book's own ruby is left as it is.
 - **Settings (⚙ on the shelf):** the AI supplier and its API key, the model, and the explanation language. DeepSeek offers Flash (default) and V4 Pro; Claude offers Sonnet 5 (default), Opus 5 and Haiku 4.5. Each supplier remembers its own key and model. Translations run without thinking for speed; explanations and follow-ups think first.
-- **Library:** the book you opened last is under 繼續閱讀; 全部書籍 lists every book in the order it was added. The tab bar switches to 搜尋 (filter by title or author) and opens 設定. Long-press a book to edit its title and author or to remove it.
+- **Library:** one screen. The book you opened last is under 繼續閱讀; 全部書籍 lists every book in the order it was added. Settings (⚙) and import (+) sit beside the title. **Pull the list down** to reveal the search field (filter by title or author; 取消 puts it away again). Long-press a book to edit its title and author or to remove it.
 
 ## Formats
 
@@ -37,9 +37,10 @@ Store-bought ebooks (Kindle, Kobo, BookWalker, Apple Books) are DRM-protected an
 ```
 src/
   main.js          routing between shelf and reader
-  library.js       library (current book + list), search, import, edit/delete
+  library.js       library (current book + list), pull-down search, import, edit/delete
   reader.js        reading screen, TOC, Aa panel, progress
-  paginator.js     iframe + CSS-column pagination, gestures, selection events
+  paginator.js     CSS-column pagination in an iframe, finger-tracking page turns, chapter slide, gestures, selection events
+  motion.js        the one easing curve and three durations (mirrored as --ease / --t-* in styles.css)
   textsel.js       selection → {selection, sentence, paragraph, context}, furigana stripped
   book.js          EPUB parsing (JSZip), TXT/Aozora parsing, import
   tutor.js         translation/explanation sheet with follow-ups

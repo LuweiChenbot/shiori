@@ -1,7 +1,6 @@
-// The library. The book you are reading comes first; every book follows as a
-// plain list. A tab bar at the bottom switches between the library and search,
-// and opens settings. Switching is synchronous (books are held in memory) so a
-// tab never shows a half-updated page.
+// The library: one screen. A large title with settings and import beside it;
+// the book you are reading comes first and every book follows as a plain list.
+// Search is not a place but a filter: pull the list down to reveal the field.
 
 import { db, requestPersistence } from './db.js';
 import { importFile } from './book.js';
@@ -38,25 +37,25 @@ export async function showLibrary(root, { openBook }) {
   let books = [];
   let imports = []; // books being imported, shown as rows in the list itself
   let importSeq = 0;
-  let mode = 'library';
   let query = '';
-  const scrollY = { library: 0, search: 0 };
+  let searching = false;
 
   root.innerHTML = '';
   const view = el(`<div class="library">
     <header class="lib-head">
       <h1 class="lib-title">書庫</h1>
-      <button class="icon-btn" data-act="import" aria-label="匯入書籍">${icon('plus', 26)}</button>
+      <div class="lib-actions">
+        <button class="icon-btn" data-act="settings" aria-label="設定">${icon('gear', 23)}</button>
+        <button class="icon-btn" data-act="import" aria-label="匯入書籍">${icon('plus', 26)}</button>
+      </div>
     </header>
-    <form class="lib-search" role="search" hidden>
-      <label class="search-field">${icon('search', 17)}<input type="search" placeholder="書名或作者" enterkeyhint="search" aria-label="搜尋書名或作者" /></label>
+    <form class="lib-search" role="search" inert>
+      <div class="lib-search-inner">
+        <label class="search-field">${icon('search', 17)}<input type="search" placeholder="書名或作者" enterkeyhint="search" aria-label="搜尋書名或作者" /></label>
+        <button type="button" class="search-cancel">取消</button>
+      </div>
     </form>
     <main class="lib-main"></main>
-    <nav class="tabbar" aria-label="主選單">
-      <button data-tab="library">${icon('library', 24)}<span>書庫</span></button>
-      <button data-tab="search">${icon('search', 24)}<span>搜尋</span></button>
-      <button data-tab="settings">${icon('gear', 24)}<span>設定</span></button>
-    </nav>
     <input type="file" multiple hidden />
   </div>`);
   root.appendChild(view);
@@ -93,31 +92,33 @@ export async function showLibrary(root, { openBook }) {
   });
   $('[data-act="import"]').addEventListener('click', () => picker.click());
 
-  function setMode(next) {
-    scrollY[mode] = window.scrollY;
-    mode = next;
-    $('.lib-title').textContent = mode === 'search' ? '搜尋' : '書庫';
-    $('[data-act="import"]').style.visibility = mode === 'search' ? 'hidden' : '';
-    searchForm.hidden = mode !== 'search';
-    view.querySelectorAll('[data-tab]').forEach((b) => {
-      const on = b.dataset.tab === mode;
-      b.classList.toggle('on', on);
-      if (on) b.setAttribute('aria-current', 'page');
-      else b.removeAttribute('aria-current');
-    });
-    if (mode !== 'search') {
-      query = '';
-      searchInput.value = '';
+  $('[data-act="settings"]').addEventListener('click', () => openSettings());
+
+  // ---- search: a field that lives above the list, revealed by pulling down
+
+  const FIELD_H = 52;
+  const collapse = () => {
+    searchForm.style.transition = '';
+    searchForm.style.height = '';
+  };
+
+  function setSearching(on) {
+    searching = on;
+    collapse();
+    searchForm.classList.toggle('open', on);
+    searchForm.toggleAttribute('inert', !on);
+    if (on) {
+      searchInput.focus({ preventScroll: true });
+    } else {
+      searchInput.blur();
+      if (query) {
+        query = '';
+        searchInput.value = '';
+        render();
+      }
     }
-    render();
-    window.scrollTo(0, scrollY[mode]);
-    if (mode === 'search') searchInput.focus({ preventScroll: true });
   }
 
-  view.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
-    if (b.dataset.tab === 'settings') openSettings();
-    else if (b.dataset.tab !== mode) setMode(b.dataset.tab);
-  }));
   searchInput.addEventListener('input', () => {
     query = searchInput.value.trim().toLowerCase();
     render();
@@ -126,6 +127,46 @@ export async function showLibrary(root, { openBook }) {
     e.preventDefault();
     searchInput.blur();
   });
+  $('.search-cancel').addEventListener('click', () => setSearching(false));
+  const onKey = (e) => {
+    if (e.key === 'Escape' && searching) setSearching(false);
+  };
+  document.addEventListener('keydown', onKey);
+
+  // The field follows the finger while the list is pulled down from the top, and
+  // stays open if it was pulled far enough. (A mouse wheel scrolled up at the top
+  // does the same on a desktop.)
+  let pull = null;
+  view.addEventListener('touchstart', (e) => {
+    pull = window.scrollY <= 0 && !searching && e.touches.length === 1
+      ? { y: e.touches[0].clientY, dy: 0, active: false }
+      : null;
+  }, { passive: true });
+  view.addEventListener('touchmove', (e) => {
+    if (!pull) return;
+    const dy = e.touches[0].clientY - pull.y;
+    if (!pull.active && (dy <= 0 || window.scrollY > 0)) {
+      pull = null; // an ordinary scroll
+      return;
+    }
+    pull.active = true;
+    pull.dy = dy;
+    if (e.cancelable) e.preventDefault();
+    searchForm.style.transition = 'none';
+    searchForm.style.height = `${Math.max(0, Math.min(FIELD_H, dy * 0.5))}px`;
+  }, { passive: false });
+  const endPull = () => {
+    const p = pull;
+    pull = null;
+    if (!p?.active) return;
+    if (p.dy > 90) setSearching(true);
+    else collapse();
+  };
+  view.addEventListener('touchend', endPull);
+  view.addEventListener('touchcancel', endPull);
+  view.addEventListener('wheel', (e) => {
+    if (!searching && e.deltaY < -20 && window.scrollY <= 0) setSearching(true);
+  }, { passive: true });
 
   async function openSample() {
     let file;
@@ -231,17 +272,14 @@ export async function showLibrary(root, { openBook }) {
       return;
     }
 
-    if (mode === 'search') {
-      const hits = query
-        ? books.filter((b) => `${b.title}\n${b.author || ''}`.toLowerCase().includes(query))
-        : books;
-      main.innerHTML = hits.length
+    if (query) {
+      const hits = books.filter((b) => `${b.title}\n${b.author || ''}`.toLowerCase().includes(query));
+      main.innerHTML = importsHtml() + (hits.length
         ? `<section class="section">
-            <h2 class="section-label"><span>${query ? '搜尋結果' : '全部書籍'}</span><span>${hits.length}</span></h2>
+            <h2 class="section-label"><span>搜尋結果</span><span>${hits.length}</span></h2>
             ${rowsHtml(hits)}
           </section>`
-        : '<p class="no-results">找不到符合的書</p>';
-      main.innerHTML = importsHtml() + main.innerHTML;
+        : '<p class="no-results">找不到符合的書</p>');
     } else {
       // "Continue reading" is the book opened last; the list below is the whole
       // library in the order books were added, so it never reshuffles.
@@ -322,9 +360,10 @@ export async function showLibrary(root, { openBook }) {
   }
 
   books = (await db.allBooks()).sort((a, b) => b.addedAt - a.addedAt);
-  setMode('library');
+  render();
   return {
     destroy() {
+      document.removeEventListener('keydown', onKey);
       urls.forEach((u) => URL.revokeObjectURL(u));
     },
   };
